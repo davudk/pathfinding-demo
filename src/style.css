@@ -1,0 +1,129 @@
+:root {
+  --bg: #090a0d;
+  --panel: rgba(10, 12, 16, 0.72);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text: #d8dde6;
+  --text-dim: #8a93a3;
+  --select: #4ade80;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.45 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#view {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  cursor: default;
+  touch-action: none;
+}
+
+#selbox {
+  position: fixed;
+  display: none;
+  pointer-events: none;
+  border: 1px solid var(--select);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+#hud {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  max-width: calc(100vw - 20px);
+}
+
+.hud-row {
+  display: flex;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.hud-label {
+  color: var(--text-dim);
+  min-width: 64px;
+}
+
+#hud-graph {
+  display: block;
+  margin-top: 6px;
+  border-radius: 3px;
+}
+
+#help {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 16px 20px;
+  background: rgba(10, 12, 16, 0.92);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  min-width: 360px;
+}
+
+#help h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#help dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+
+#help dt {
+  color: var(--text-dim);
+}
+
+#help dd {
+  margin: 0;
+}
+
+#hint {
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+#fatal {
+  position: fixed;
+  inset: 20% 20% auto;
+  padding: 16px;
+  background: #3a1212;
+  border: 1px solid #a33;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+.hidden {
+  display: none !important;
+}

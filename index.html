@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RTS Pathfinding</title>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="selbox"></div>
+    <div id="hud">
+      <div id="hud-rows"></div>
+      <canvas id="hud-graph"></canvas>
+    </div>
+    <div id="help" class="hidden">
+      <h2>Controls</h2>
+      <dl>
+        <dt>Left click / drag</dt><dd>Select / box select</dd>
+        <dt>Shift + click / drag</dt><dd>Toggle / add to selection</dd>
+        <dt>Double-click, Ctrl + click</dt><dd>Select same type in view</dd>
+        <dt>Arrows, screen edge, middle drag</dt><dd>Pan camera</dd>
+        <dt>Wheel</dt><dd>Zoom to cursor</dd>
+        <dt>Space / .</dt><dd>Pause / step one tick</dd>
+        <dt>[ / ]</dt><dd>Slower / faster simulation</dd>
+        <dt>=</dt><dd>Spawn 1000 random units</dd>
+        <dt>Delete</dt><dd>Remove selected units</dd>
+        <dt>`</dt><dd>Toggle stats</dd>
+        <dt>F1</dt><dd>Toggle this help</dd>
+      </dl>
+    </div>
+    <div id="hint">F1 — controls</div>
+    <div id="fatal" class="hidden"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
