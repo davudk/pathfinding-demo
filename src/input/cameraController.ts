@@ -2,12 +2,14 @@ import type { Camera } from '../render/camera';
 
 const PAN_SPEED_PX = 1100; // CSS px / second at any zoom
 const EDGE_PX = 8;
-const ZOOM_STEP = 0.0016;  // per wheel delta pixel
+const ZOOM_STEP = 0.0016;  // mouse wheel, per delta pixel
+const PINCH_STEP = 0.01;   // trackpad pinch (ctrl+wheel), per delta pixel
+const GESTURE_GAP_MS = 140; // wheel events closer than this belong to the same gesture
 const ZOOM_EASE = 18;      // 1/s, exponential approach to target zoom
 
 /**
  * SC2-style camera: arrow keys (letters are reserved for commands), screen-edge pan (only while the pointer is in the window),
- * middle-drag grab pan, and smooth wheel zoom anchored at the cursor.
+ * middle-drag grab pan, trackpad two-finger pan, pinch zoom, and smooth mouse-wheel zoom anchored at the cursor.
  */
 export class CameraController {
   private readonly keys = new Set<string>();
@@ -20,6 +22,8 @@ export class CameraController {
   private zoomTarget: number;
   private zoomAnchorX = 0;
   private zoomAnchorY = 0;
+  private lastWheelAt = -Infinity;
+  private lastWheelKind: 'mouse' | 'trackpad' = 'mouse';
   edgePan = true;
 
   constructor(
@@ -34,6 +38,7 @@ export class CameraController {
     canvas.addEventListener('pointerenter', () => { this.pointerInside = true; });
     canvas.addEventListener('pointerleave', () => { this.pointerInside = false; });
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
+    this.installSafariGestures();
     window.addEventListener('keydown', (e) => {
       if (!isTypingTarget(e.target)) this.keys.add(e.code);
     });
@@ -114,13 +119,80 @@ export class CameraController {
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
   };
 
+  /**
+   * Wheel input. macOS trackpads send two-finger scroll as plain wheel events (→ pan) and
+   * pinch as ctrl+wheel (→ zoom); a physical mouse wheel zooms. See `classifyWheel`.
+   */
   private readonly onWheel = (e: WheelEvent): void => {
     e.preventDefault();
-    const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-    this.zoomTarget = Math.min(this.cam.maxZoom, Math.max(this.cam.minZoom, this.zoomTarget * Math.exp(-delta * ZOOM_STEP)));
+    const now = performance.now();
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.cam.viewH : 1;
+    const dx = e.deltaX * unit;
+    const dy = e.deltaY * unit;
+
+    if (e.ctrlKey) {
+      // Pinch (or ctrl + mouse wheel): apply immediately so it tracks the fingers.
+      const z = this.clampZoom(this.cam.zoom * Math.exp(-dy * PINCH_STEP));
+      this.cam.zoomAt(e.offsetX, e.offsetY, z);
+      this.zoomTarget = z;
+      return;
+    }
+
+    // A gesture keeps its classification for its whole event stream (including momentum).
+    const kind = now - this.lastWheelAt < GESTURE_GAP_MS ? this.lastWheelKind : classifyWheel(e);
+    this.lastWheelAt = now;
+    this.lastWheelKind = kind;
+
+    if (kind === 'trackpad') {
+      this.cam.centerX += dx / this.cam.zoom;
+      this.cam.centerY += dy / this.cam.zoom;
+      return;
+    }
+    this.zoomTarget = this.clampZoom(this.zoomTarget * Math.exp(-dy * ZOOM_STEP));
     this.zoomAnchorX = e.offsetX;
     this.zoomAnchorY = e.offsetY;
   };
+
+  /** Safari pinch arrives as non-standard gesture events; block page zoom and map scale to camera zoom. */
+  private installSafariGestures(): void {
+    let startZoom = 1;
+    let ax = 0;
+    let ay = 0;
+    type GestureEv = Event & { scale: number; clientX: number; clientY: number };
+    this.canvas.addEventListener('gesturestart', (ev) => {
+      ev.preventDefault();
+      const g = ev as GestureEv;
+      startZoom = this.cam.zoom;
+      const r = this.canvas.getBoundingClientRect();
+      ax = g.clientX - r.left;
+      ay = g.clientY - r.top;
+    });
+    this.canvas.addEventListener('gesturechange', (ev) => {
+      ev.preventDefault();
+      const z = this.clampZoom(startZoom * (ev as GestureEv).scale);
+      this.cam.zoomAt(ax, ay, z);
+      this.zoomTarget = z;
+    });
+    this.canvas.addEventListener('gestureend', (ev) => ev.preventDefault());
+  }
+
+  private clampZoom(z: number): number {
+    return Math.min(this.cam.maxZoom, Math.max(this.cam.minZoom, z));
+  }
+}
+
+/**
+ * Mouse wheel vs trackpad scroll (same heuristics as Mapbox GL): line/page delta modes and
+ * macOS mouse deltas (multiples of 4.000244140625) are wheels; horizontal motion or small /
+ * fractional deltas are trackpads; whole-number notches of ≥ 100 px are wheels.
+ */
+export function classifyWheel(e: Pick<WheelEvent, 'deltaMode' | 'deltaX' | 'deltaY'>): 'mouse' | 'trackpad' {
+  if (e.deltaMode !== 0) return 'mouse';
+  if (e.deltaX !== 0) return 'trackpad';
+  const dy = e.deltaY;
+  if (dy !== 0 && dy % 4.000244140625 === 0) return 'mouse';
+  if (Number.isInteger(dy) && Math.abs(dy) >= 100) return 'mouse';
+  return 'trackpad';
 }
 
 export function isTypingTarget(t: EventTarget | null): boolean {

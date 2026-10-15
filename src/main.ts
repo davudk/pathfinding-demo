@@ -15,6 +15,7 @@ try {
     { main: params.get('sim') === 'main', forceTransfer: params.get('transport') === 'transfer' },
   );
   app.start().catch(fail);
+  if (import.meta.env.DEV) (window as unknown as { __app: App }).__app = app;
 } catch (err) {
   fail(err);
 }
