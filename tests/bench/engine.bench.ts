@@ -6,7 +6,7 @@ import { snapshotByteLength, snapshotViews } from '../../src/shared/protocol';
 
 // Run with `npm run bench`.
 test('engine shell @ 10k units', async ({ bench }) => {
-  const w = createWorld({ name: 'stress', seed: 1, units: 10000 });
+  const w = createWorld({ name: 'stress', seed: 1, units: 10000, mapSeed: 1337 });
   const views = snapshotViews(new ArrayBuffer(snapshotByteLength()));
   await bench.compare(
     bench('step (drift)', () => step(w, [])),

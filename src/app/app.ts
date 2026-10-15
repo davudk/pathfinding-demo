@@ -27,7 +27,12 @@ export function sceneFromUrl(params: URLSearchParams): SceneConfig {
     const v = Number(params.get(k));
     return Number.isFinite(v) && params.has(k) ? v : d;
   };
-  return { name: params.get('scene') ?? 'stress', seed: num('seed', 42) >>> 0, units: Math.max(0, Math.min(16000, num('units', 10000))) };
+  return {
+    name: params.get('scene') ?? 'stress',
+    seed: num('seed', 42) >>> 0,
+    units: Math.max(0, Math.min(16000, num('units', 10000))),
+    mapSeed: num('mapSeed', 1337) >>> 0,
+  };
 }
 
 export class App {
@@ -55,6 +60,7 @@ export class App {
   private validatedTick = -1;
   private paused = false;
   private timeScale = 1;
+  private mapInfo = '';
 
   constructor(private readonly el: AppElements, scene: SceneConfig, hostOpts: { main: boolean; forceTransfer: boolean }) {
     this.renderer = new Renderer(el.canvas);
@@ -68,9 +74,12 @@ export class App {
   }
 
   async start(): Promise<void> {
-    const { mapW, mapH } = await this.host.ready;
+    const { mapW, mapH, map } = await this.host.ready;
     this.mapW = mapW;
     this.mapH = mapH;
+    const up = this.renderer.setMap(map, mapW, mapH);
+    const st = map.stats;
+    this.mapInfo = `${map.name} · ${st.terrainPolygons} rock polys / ${st.terrainVertices} verts · ${st.buildings} buildings · gen ${st.totalMs.toFixed(0)} ms · gpu upload ${up.ms.toFixed(0)} ms`;
     const cam = this.renderer.camera;
     cam.centerX = mapW / 2;
     cam.centerY = mapH / 2;
@@ -79,6 +88,10 @@ export class App {
     const border = this.renderer.lines.batch(8);
     border.polyline([0, 0, mapW, 0, mapW, mapH, 0, mapH], true, rgba(120, 132, 150, 200), 2);
     this.underLines.push(border);
+    // Crisp rock outlines on top of the distance-field shading.
+    const outlines = this.renderer.lines.batch(st.terrainVertices + 16);
+    for (const p of map.terrain) for (const r of p.rings) outlines.polyline(r, true, rgba(150, 165, 190, 110), 1.1);
+    this.underLines.push(outlines);
 
     this.lastFrame = performance.now();
     requestAnimationFrame(this.frame);
@@ -153,6 +166,7 @@ export class App {
     }
     h.set('sel', 'Selected', `${this.selection.handles.size}`);
     h.set('mode', 'Sim host', this.host.mode);
+    h.set('map', 'Map', this.mapInfo);
     const sn = Math.min(this.simTotalsN, 240);
     this.graph.draw(this.scratchA, n, this.simTotals.subarray(this.simTotals.length - sn), sn);
   }

@@ -1,17 +1,24 @@
 import {
   H_HIGH_WATER, H_TICK, INST_BYTES, SAB_CTRL_LATEST, SAB_RING, SNAP_HEADER_BYTES,
   sabByteLength, sabSlotOffset, snapshotByteLength, snapshotViews,
-  type FromSim, type SceneConfig, type SimCommand, type SnapshotViews, type ToSim,
+  type FromSim, type MapRenderData, type SceneConfig, type SimCommand, type SnapshotViews, type ToSim,
 } from '../shared/protocol';
 import { SimRunner, type SnapshotSink } from '../sim/host/runner';
+import { mapRenderData } from '../sim/map/worldMap';
 import { SnapshotRing } from './snapshotRing';
 
 export type SimHostMode = 'worker-sab' | 'worker-transfer' | 'main';
 
+export interface SimReady {
+  readonly mapW: number;
+  readonly mapH: number;
+  readonly map: MapRenderData;
+}
+
 export interface SimHost {
   readonly mode: SimHostMode;
   readonly ring: SnapshotRing;
-  readonly ready: Promise<{ mapW: number; mapH: number }>;
+  readonly ready: Promise<SimReady>;
   command(cmd: SimCommand): void;
   control(c: { paused?: boolean; timeScale?: number; step?: boolean }): void;
   /** Pulls new snapshots (shared-memory mode); no-op otherwise. Call once per frame. */
@@ -68,12 +75,12 @@ function createWorkerHost(scene: SceneConfig, useSab: boolean): SimHost {
     post({ type: 'init', scene, transport: 'transfer' });
   }
 
-  const ready = new Promise<{ mapW: number; mapH: number }>((resolve, reject) => {
+  const ready = new Promise<SimReady>((resolve, reject) => {
     worker.onmessage = (ev: MessageEvent<FromSim>) => {
       const msg = ev.data;
       switch (msg.type) {
         case 'ready':
-          resolve({ mapW: msg.mapW, mapH: msg.mapH });
+          resolve({ mapW: msg.mapW, mapH: msg.mapH, map: msg.map });
           break;
         case 'snapshot':
           ring.push(msg.buffer);
@@ -112,7 +119,7 @@ function createMainThreadHost(scene: SceneConfig): SimHost {
   return {
     mode: 'main',
     ring,
-    ready: Promise.resolve({ mapW: runner.world.mapW, mapH: runner.world.mapH }),
+    ready: Promise.resolve({ mapW: runner.world.mapW, mapH: runner.world.mapH, map: mapRenderData(runner.world.map) }),
     command: (cmd) => runner.enqueue(cmd),
     control: (c) => runner.control(c.paused, c.timeScale, c.step),
     poll: () => {},

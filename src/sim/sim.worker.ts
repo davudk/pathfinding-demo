@@ -2,6 +2,7 @@
 import type { FromSim, Port, ToSim } from '../shared/protocol';
 import { SimRunner } from './host/runner';
 import { SharedRingSink, TransferSink } from './host/sinks';
+import { mapRenderData } from './map/worldMap';
 
 const port = self as unknown as Port<FromSim, ToSim>;
 let runner: SimRunner | null = null;
@@ -22,7 +23,7 @@ port.onmessage = (ev) => {
           sink = transferSink;
         }
         runner = new SimRunner(msg.scene, sink);
-        port.postMessage({ type: 'ready', mapW: runner.world.mapW, mapH: runner.world.mapH });
+        port.postMessage({ type: 'ready', mapW: runner.world.mapW, mapH: runner.world.mapH, map: mapRenderData(runner.world.map) });
         runner.start();
         break;
       }

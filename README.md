@@ -19,6 +19,7 @@ URL parameters:
 |---|---|---|
 | `units` | 10000 | number of units in the stress scene |
 | `seed` | 42 | RNG seed (the simulation is deterministic per seed) |
+| `mapSeed` | 1337 | seed of the procedural 9-zone map |
 | `sim=main` | — | run the simulation on the main thread (for debugging with breakpoints) |
 | `transport=transfer` | — | force transferable-buffer snapshots instead of SharedArrayBuffer |
 
@@ -34,9 +35,10 @@ URL parameters:
 
 ## Layout
 
-- `src/sim/` — the deterministic simulation. It imports only `shared/` and runs in the worker.
+- `src/sim/` — the deterministic simulation. It imports only `shared/` and npm geometry packages, and runs in the worker.
+  - `sim/map/` — map generation (9 zones), Clipper2 normalization into lattice-snapped obstacle polygons, building placement validation, and the occupancy raster.
 - `src/shared/` — the protocol, snapshot layout, handles, RNG and archetypes.
 - `src/app/` — main-thread orchestration: sim host, snapshot ring and render clock.
-- `src/render/` — the WebGL2 renderer: ground, instanced SDF units and thick lines.
+- `src/render/` — the WebGL2 renderer: ground with ambient occlusion and cast shadows from the terrain distance field, beveled rock, instanced buildings, instanced SDF units and thick lines.
 - `src/input/` — camera and selection.
 - `src/ui/` and `src/debug/` — the HUD and the frame graph.

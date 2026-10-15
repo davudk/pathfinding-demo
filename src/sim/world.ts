@@ -1,4 +1,6 @@
 import { UNIT_CAPACITY, DEFAULT_MAP_SIZE } from '../shared/constants';
+import { generateMap } from './map/generate';
+import { loadWorldMap, type WorldMap } from './map/worldMap';
 import { Rng } from '../shared/rng';
 import { Profiler, SIM_SYSTEM_NAMES } from '../shared/profiler';
 import type { SceneConfig } from '../shared/protocol';
@@ -11,16 +13,20 @@ export interface World {
   readonly mapH: number;
   readonly rng: Rng;
   readonly units: UnitStore;
+  readonly map: WorldMap;
   readonly prof: Profiler;
 }
 
 export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World {
+  const gen = generateMap(scene.mapSeed, DEFAULT_MAP_SIZE);
+  const map = loadWorldMap(gen.map, gen.mainPoint);
   const world: World = {
     tick: 0,
-    mapW: DEFAULT_MAP_SIZE,
-    mapH: DEFAULT_MAP_SIZE,
+    mapW: map.width,
+    mapH: map.height,
     rng: new Rng(scene.seed),
     units: new UnitStore(capacity),
+    map,
     prof: new Profiler(SIM_SYSTEM_NAMES, 120),
   };
   spawnRandomUnits(world, scene.units);

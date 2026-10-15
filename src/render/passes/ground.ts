@@ -1,4 +1,5 @@
 import { compileProgram, uniforms } from '../gl/util';
+import { SDF_GLSL } from './terrain';
 
 const VS = /* glsl */ `#version 300 es
 out vec2 v_clip;
@@ -13,9 +14,9 @@ const FS = /* glsl */ `#version 300 es
 precision highp float;
 in vec2 v_clip;
 uniform vec4 u_cam;      // centerX, centerY, halfViewW/zoom, halfViewH/zoom (world units)
-uniform vec2 u_map;      // map size
 uniform float u_pxPerUnit;
 out vec4 o;
+${SDF_GLSL}
 
 // Coverage of grid lines with the given spacing (world units), ~1 device px wide.
 float grid(vec2 w, float spacing, float widthPx) {
@@ -28,6 +29,7 @@ float grid(vec2 w, float spacing, float widthPx) {
 void main() {
   vec2 w = u_cam.xy + v_clip * vec2(u_cam.z, -u_cam.w);
   bool inside = w.x >= 0.0 && w.y >= 0.0 && w.x <= u_map.x && w.y <= u_map.y;
+  float d = sdf(w);
   vec3 base = vec3(0.071, 0.078, 0.090);
   // Very subtle large-scale variation so the ground doesn't look flat.
   float n = sin(w.x * 0.031) * sin(w.y * 0.027) + sin((w.x + w.y) * 0.013);
@@ -40,6 +42,10 @@ void main() {
   c += vec3(0.022, 0.025, 0.030) * grid(w, 1.0, 1.0);
   c += vec3(0.030, 0.034, 0.042) * grid(w, 8.0, 1.0);
   c += vec3(0.040, 0.046, 0.056) * grid(w, 64.0, 1.5);
+  // Ambient occlusion at the foot of rock, and a cast shadow toward the bottom-right.
+  float ao = 1.0 - 0.5 * exp(-max(d, 0.0) * 0.9);
+  float shadow = 1.0 - 0.38 * smoothstep(0.5, -0.6, sdf(w - vec2(0.75, 1.0)));
+  c *= ao * shadow;
   o = vec4(c, 1.0);
 }`;
 
@@ -50,13 +56,15 @@ export class GroundPass {
 
   constructor(private readonly gl: WebGL2RenderingContext) {
     this.prog = compileProgram(gl, 'ground', VS, FS);
-    this.u = uniforms(gl, this.prog, ['u_cam', 'u_map', 'u_pxPerUnit'] as const);
+    this.u = uniforms(gl, this.prog, ['u_cam', 'u_map', 'u_pxPerUnit', 'u_sdf'] as const);
     this.vao = gl.createVertexArray();
   }
 
+  /** Expects the terrain distance field bound on texture unit 0. */
   draw(cx: number, cy: number, halfW: number, halfH: number, mapW: number, mapH: number, pxPerUnit: number): void {
     const gl = this.gl;
     gl.useProgram(this.prog);
+    gl.uniform1i(this.u.u_sdf, 0);
     gl.uniform4f(this.u.u_cam, cx, cy, halfW, halfH);
     gl.uniform2f(this.u.u_map, mapW, mapH);
     gl.uniform1f(this.u.u_pxPerUnit, pxPerUnit);

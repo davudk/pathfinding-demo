@@ -23,10 +23,11 @@ function area(file: string, spec: string): string {
 }
 
 describe('module boundaries', () => {
-  it('sim/ imports only sim/ and shared/', () => {
+  it('sim/ imports only sim/, shared/ and packages', () => {
     for (const f of files(join(SRC, 'sim'))) {
       for (const spec of imports(f)) {
         const a = area(f, spec);
+        if (a.startsWith('pkg:')) continue;
         expect(['sim', 'shared'], `${relative(SRC, f)} imports ${spec}`).toContain(a);
       }
     }

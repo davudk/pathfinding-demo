@@ -9,6 +9,7 @@ import type { World } from '../world';
  */
 export function driftUnits(world: World): void {
   const { units: u, rng, mapW, mapH } = world;
+  const occ = world.map.occupancy;
   const dt = SIM_DT;
   for (let k = 0; k < u.count; k++) {
     const i = u.active[k];
@@ -24,12 +25,19 @@ export function driftUnits(world: World): void {
     vy = vx * s + vy * c;
     vx = nvx;
 
-    let x = u.posX[i] + vx * dt;
-    let y = u.posY[i] + vy * dt;
+    const px = u.posX[i], py = u.posY[i];
+    let x = px + vx * dt;
+    let y = py + vy * dt;
     if (x < r) { x = r; vx = Math.abs(vx); }
     else if (x > mapW - r) { x = mapW - r; vx = -Math.abs(vx); }
     if (y < r) { y = r; vy = Math.abs(vy); }
     else if (y > mapH - r) { y = mapH - r; vy = -Math.abs(vy); }
+    // Placeholder obstacle response: slide along one axis, else bounce back.
+    if (!occ.isFreeCircle(x, y, r)) {
+      if (occ.isFreeCircle(x, py, r)) { y = py; vy = -vy; }
+      else if (occ.isFreeCircle(px, y, r)) { x = px; vx = -vx; }
+      else { x = px; y = py; vx = -vx; vy = -vy; }
+    }
 
     u.posX[i] = x;
     u.posY[i] = y;

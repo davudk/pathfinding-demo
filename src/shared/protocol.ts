@@ -8,6 +8,8 @@
  */
 
 import { UNIT_CAPACITY } from './constants';
+import type { Polygon } from './geometry';
+import type { BuildingDef, ZoneDef } from './mapFormat';
 
 // ── Header (int32 / float32 words) ────────────────────────────────────────────
 export const SNAP_HEADER_WORDS = 64;
@@ -85,6 +87,25 @@ export interface SceneConfig {
   readonly name: string;
   readonly seed: number;
   readonly units: number;
+  /** Seed of the procedural map. */
+  readonly mapSeed: number;
+}
+
+/** Static map data the main thread needs for rendering (sent once, and again after edits). */
+export interface MapRenderData {
+  readonly name: string;
+  readonly terrain: readonly Polygon[];
+  readonly buildings: readonly BuildingDef[];
+  readonly zones: readonly ZoneDef[];
+  readonly stats: {
+    readonly terrainPolygons: number;
+    readonly terrainVertices: number;
+    readonly filledPockets: number;
+    readonly buildings: number;
+    readonly rejectedBuildings: number;
+    readonly normalizeMs: number;
+    readonly totalMs: number;
+  };
 }
 
 // ── Commands (applied by the sim at the start of the next tick) ───────────────
@@ -102,7 +123,7 @@ export type ToSim =
   | { readonly type: 'returnBuffer'; readonly buffer: ArrayBuffer };
 
 export type FromSim =
-  | { readonly type: 'ready'; readonly mapW: number; readonly mapH: number }
+  | { readonly type: 'ready'; readonly mapW: number; readonly mapH: number; readonly map: MapRenderData }
   | { readonly type: 'snapshot'; readonly tick: number; readonly buffer: ArrayBuffer }
   | { readonly type: 'error'; readonly message: string };
 

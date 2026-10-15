@@ -1,7 +1,10 @@
 import type { Snapshot } from '../app/snapshotRing';
 import { FACTION_COLORS } from '../shared/factions';
 import { Camera } from './camera';
+import type { MapRenderData } from '../shared/protocol';
+import { BuildingsPass } from './passes/buildings';
 import { GroundPass } from './passes/ground';
+import { TerrainPass } from './passes/terrain';
 import { LinePass, type LineBatch } from './passes/lines';
 import { UnitsPass } from './passes/units';
 
@@ -24,6 +27,8 @@ export class Renderer {
   readonly camera = new Camera();
   readonly lines: LinePass;
   readonly units: UnitsPass;
+  readonly terrain: TerrainPass;
+  readonly buildings: BuildingsPass;
   private readonly ground: GroundPass;
   private readonly view = new Float32Array(9);
   private deviceW = 1;
@@ -42,6 +47,8 @@ export class Renderer {
     if (!gl) throw new Error('WebGL2 is not available in this browser.');
     this.gl = gl;
     this.ground = new GroundPass(gl);
+    this.terrain = new TerrainPass(gl);
+    this.buildings = new BuildingsPass(gl);
     this.lines = new LinePass(gl);
     this.units = new UnitsPass(gl);
     this.units.setFactionColors(FACTION_COLORS);
@@ -75,6 +82,12 @@ export class Renderer {
     apply(r.width, r.height);
   }
 
+  /** Uploads static map geometry. Returns timing info for the HUD. */
+  setMap(map: MapRenderData, mapW: number, mapH: number): { triangles: number; ms: number } {
+    this.buildings.setBuildings(map.buildings);
+    return this.terrain.setTerrain(map.terrain, mapW, mapH);
+  }
+
   render(f: FrameInput): void {
     const gl = this.gl;
     const cam = this.camera;
@@ -90,7 +103,11 @@ export class Renderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     cam.viewMatrix(this.view);
+    this.terrain.bindSdf(0);
     this.ground.draw(cam.centerX, cam.centerY, cam.viewW / cam.zoom / 2, cam.viewH / cam.zoom / 2, f.mapW, f.mapH, pxPerUnit);
+    this.buildings.drawShadows(this.view, pxPerUnit);
+    this.terrain.draw(this.view, pxPerUnit);
+    this.buildings.draw(this.view, pxPerUnit);
     for (const b of f.under) b.draw(this.view, pxPerUnit);
     this.units.draw(this.view, f.a, f.b, f.alpha, pxPerUnit);
     for (const b of f.over) b.draw(this.view, pxPerUnit);

@@ -1,4 +1,4 @@
-import { ArchetypeId } from '../../shared/archetypes';
+import { ARCHETYPES, ArchetypeId } from '../../shared/archetypes';
 import { Faction } from '../../shared/factions';
 import { TAU } from '../../shared/math';
 import type { World } from '../world';
@@ -16,6 +16,7 @@ const MIX: readonly (readonly [number, number])[] = [
 
 export function spawnRandomUnits(world: World, count: number): void {
   const { rng, units, mapW, mapH } = world;
+  const occ = world.map.occupancy;
   for (let n = 0; n < count; n++) {
     let roll = rng.float();
     let arch: number = ArchetypeId.Trooper;
@@ -27,9 +28,14 @@ export function spawnRandomUnits(world: World, count: number): void {
       roll -= p;
     }
     const faction = arch === ArchetypeId.Critter ? Faction.Neutral : rng.int(4);
-    const margin = 4;
-    const x = rng.range(margin, mapW - margin);
-    const y = rng.range(margin, mapH - margin);
+    const r = ARCHETYPES[arch].radius;
+    let x = 0, y = 0, found = false;
+    for (let tries = 0; tries < 64 && !found; tries++) {
+      x = rng.range(r, mapW - r);
+      y = rng.range(r, mapH - r);
+      found = occ.isFreeCircle(x, y, r + 0.1);
+    }
+    if (!found) continue;
     const h = units.spawn(arch, faction, x, y, rng.range(-Math.PI, Math.PI));
     if (h === 0) return;
     const i = h & 0xffff;
