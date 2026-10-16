@@ -120,7 +120,8 @@ export type SimCommand =
   | { readonly kind: 'despawn'; readonly handles: Int32Array }
   | { readonly kind: 'placeBuilding'; readonly x: number; readonly y: number; readonly w: number; readonly h: number; readonly faction: number; readonly type: string }
   | { readonly kind: 'removeBuildingAt'; readonly x: number; readonly y: number }
-  | { readonly kind: 'move'; readonly handles: Int32Array; readonly x: number; readonly y: number }
+  | { readonly kind: 'move'; readonly handles: Int32Array; readonly x: number; readonly y: number; readonly queue?: boolean }
+  | { readonly kind: 'patrol'; readonly handles: Int32Array; readonly x: number; readonly y: number; readonly queue?: boolean }
   | { readonly kind: 'stop'; readonly handles: Int32Array }
   | { readonly kind: 'hold'; readonly handles: Int32Array };
 
@@ -131,6 +132,12 @@ export interface PathEntry {
   readonly points: Float32Array | null;
   readonly cursor: number;
   readonly complete: boolean;
+  /** Queued orders after the current one: (x, y, kind) triples; kind 1 = move, 2 = patrol. */
+  readonly queue: Float32Array | null;
+  /** True when the queue loops (patrol). */
+  readonly loop: boolean;
+  /** True when the order being executed right now is a patrol leg. */
+  readonly patrolNow: boolean;
 }
 
 /** Navmesh debug geometry for overlays. */

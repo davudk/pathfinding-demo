@@ -1,6 +1,6 @@
 import { SIM_DT_MS } from '../../shared/constants';
 import { SimSys } from '../../shared/profiler';
-import type { FromSim, NavDebugData, SceneConfig, SimCommand, SnapshotViews } from '../../shared/protocol';
+import type { FromSim, NavDebugData, PathEntry, SceneConfig, SimCommand, SnapshotViews } from '../../shared/protocol';
 import { createWorld, type World } from '../world';
 import { step } from '../step';
 import { writeSnapshot, writeTimings } from '../snapshot';
@@ -32,6 +32,7 @@ export class SimRunner {
   private watched: Int32Array = new Int32Array(0);
   private sentVersion = new Map<number, number>();
   private sentCursor = new Map<number, number>();
+  private sentQueue = new Map<number, number>();
 
   constructor(scene: SceneConfig, sink: SnapshotSink, private readonly emit: (msg: FromSim, transfer?: Transferable[]) => void) {
     this.world = createWorld(scene);
@@ -50,33 +51,60 @@ export class SimRunner {
     this.watched = handles;
     this.sentVersion.clear();
     this.sentCursor.clear();
+    this.sentQueue.clear();
     this.emitPaths();
   }
 
-  /** Sends new paths and cursor changes for watched units. */
+  /** Sends new paths, cursor moves and queue changes for watched units. */
   private emitPaths(): void {
     if (this.watched.length === 0) return;
-    const { units, paths } = this.world;
-    const entries: { handle: number; points: Float32Array | null; cursor: number; complete: boolean }[] = [];
+    const { units, paths, queues } = this.world;
+    const entries: PathEntry[] = [];
     const cleared: number[] = [];
     for (const h of this.watched) {
       if (!units.isValid(h)) continue;
       const i = h & 0xffff;
       const pts = paths.points[i];
       const ver = paths.version[i];
+      const qver = queues.version[i];
+      const cur = paths.cursor[i];
       const prevVer = this.sentVersion.get(h);
-      if (!pts) {
-        if (prevVer !== undefined && prevVer !== ver) cleared.push(h);
+      const prevQ = this.sentQueue.get(h);
+      if (!pts && queues.len[i] === 0) {
+        if (prevVer !== undefined && (prevVer !== ver || prevQ !== qver)) cleared.push(h);
         this.sentVersion.set(h, ver);
+        this.sentQueue.set(h, qver);
         continue;
       }
-      const cur = paths.cursor[i];
-      if (prevVer !== ver) {
-        entries.push({ handle: h, points: Float32Array.from(pts), cursor: cur, complete: paths.complete[i] === 1 });
-      } else if (this.sentCursor.get(h) !== cur) {
-        entries.push({ handle: h, points: null, cursor: cur, complete: paths.complete[i] === 1 });
-      } else continue;
+      const pathChanged = prevVer !== ver;
+      const queueChanged = prevQ !== qver;
+      if (!pathChanged && !queueChanged && this.sentCursor.get(h) === cur) continue;
+      let queue: Float32Array | null = null;
+      let loop = false;
+      if (queueChanged || pathChanged) {
+        // Entries after the current one (the current one is the path itself).
+        const n = queues.len[i];
+        queue = new Float32Array(Math.max(0, n - 1) * 3);
+        for (let k = 1; k < n; k++) {
+          const e = queues.at(i, k);
+          queue[3 * (k - 1)] = queues.x[e];
+          queue[3 * (k - 1) + 1] = queues.y[e];
+          queue[3 * (k - 1) + 2] = queues.kind[e];
+          if (queues.kind[e] === 2) loop = true;
+        }
+        if (n > 0 && queues.kind[queues.at(i, 0)] === 2) loop = true;
+      }
+      entries.push({
+        handle: h,
+        points: pathChanged && pts ? Float32Array.from(pts) : null,
+        cursor: cur,
+        complete: paths.complete[i] === 1,
+        queue,
+        loop,
+        patrolNow: queues.len[i] > 0 && queues.kind[queues.at(i, 0)] === 2,
+      });
       this.sentVersion.set(h, ver);
+      this.sentQueue.set(h, qver);
       this.sentCursor.set(h, cur);
     }
     if (entries.length || cleared.length) this.emit({ type: 'paths', entries, cleared: Int32Array.from(cleared) });

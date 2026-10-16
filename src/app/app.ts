@@ -1,7 +1,12 @@
 import { H_ALIVE, H_NAV_VERSION, H_PATH_QUEUE, H_PATH_SERVED, H_SYS_BASE, H_TIME_F64, type FromSim, type SceneConfig } from '../shared/protocol';
 import { Faction } from '../shared/factions';
 import { NavOverlay } from './navOverlay';
-import { ClickMarkers, PathOverlay } from './pathOverlay';
+import { ClickMarkers, MARKER_MOVE, MARKER_PATROL, PathOverlay } from './pathOverlay';
+import { CommandController } from '../input/commandController';
+import { ControlGroups } from '../input/controlGroups';
+import { Minimap } from '../ui/minimap';
+import { SelectionPanel } from '../ui/selectionPanel';
+import { I_HANDLE, INST_WORDS, SNAP_HEADER_WORDS, I_X, I_Y } from '../shared/protocol';
 import { Profiler, SIM_SYSTEM_NAMES, SimSys, percentile } from '../shared/profiler';
 import { SIM_HZ } from '../shared/constants';
 import { Renderer } from '../render/renderer';
@@ -24,6 +29,9 @@ export interface AppElements {
   readonly selBox: HTMLElement;
   readonly help: HTMLElement;
   readonly toast: HTMLElement;
+  readonly minimap: HTMLCanvasElement;
+  readonly selSummary: HTMLElement;
+  readonly groupBar: HTMLElement;
 }
 
 export function sceneFromUrl(params: URLSearchParams): SceneConfig {
@@ -68,6 +76,11 @@ export class App {
   private readonly nav: NavOverlay;
   private readonly pathOverlay: PathOverlay;
   private readonly markers: ClickMarkers;
+  private readonly commands: CommandController;
+  private readonly groups = new ControlGroups();
+  private readonly minimap: Minimap;
+  private readonly panel: SelectionPanel;
+  private lastPrune = 0;
   private watchedVersion = -1;
   private pointerX = -1;
   private pointerY = -1;
@@ -86,7 +99,17 @@ export class App {
     this.pathOverlay = new PathOverlay(this.renderer.lines.batch(4096));
     this.markers = new ClickMarkers(this.renderer.lines.batch(256));
     this.overLines.push(this.pathOverlay.batch, this.markers.batch);
-    el.canvas.addEventListener('pointerdown', this.onRightDown);
+    this.commands = new CommandController(el.canvas, cam, this.selection, () => ({ w: this.mapW, h: this.mapH }), (cmd, x, y) => {
+      this.host.command(cmd);
+      this.markers.add(x, y, cmd.kind === 'patrol' ? MARKER_PATROL : MARKER_MOVE);
+    });
+    this.minimap = new Minimap(
+      el.minimap,
+      cam,
+      (x, y) => this.camCtl.centerOn(x, y),
+      (x, y, queue) => this.commands.orderAt('move', x, y, queue),
+    );
+    this.panel = new SelectionPanel(el.selSummary, el.groupBar);
     this.host.onEvent = this.onSimEvent;
     el.canvas.addEventListener('pointermove', (e) => {
       this.pointerX = e.offsetX;
@@ -99,6 +122,7 @@ export class App {
     switch (msg.type) {
       case 'buildings':
         this.renderer.buildings.setBuildings(msg.buildings);
+        this.minimap.setBuildings(msg.buildings);
         break;
       case 'notice':
         this.showToast(msg.text);
@@ -112,15 +136,22 @@ export class App {
     }
   };
 
-  /** Right-click: move the selection to the clicked point. */
-  private readonly onRightDown = (e: PointerEvent): void => {
-    if (e.button !== 2 || this.selection.handles.size === 0) return;
-    const cam = this.renderer.camera;
-    const x = cam.screenToWorldX(e.offsetX), y = cam.screenToWorldY(e.offsetY);
-    if (x < 0 || y < 0 || x > this.mapW || y > this.mapH) return;
-    this.host.command({ kind: 'move', handles: Int32Array.from(this.selection.handles), x, y });
-    this.markers.add(x, y);
-  };
+
+
+  /** Centers the camera on the centroid of the given units (control-group double tap). */
+  private centerOnHandles(handles: readonly number[]): void {
+    const s = this.host.ring.latest?.views;
+    if (!s) return;
+    let x = 0, y = 0, n = 0;
+    for (const h of handles) {
+      const o = SNAP_HEADER_WORDS + (h & 0xffff) * INST_WORDS;
+      if (s.u32[o + I_HANDLE] !== h) continue;
+      x += s.f32[o + I_X];
+      y += s.f32[o + I_Y];
+      n++;
+    }
+    if (n > 0) this.camCtl.centerOn(x / n, y / n);
+  }
 
   private showToast(text: string): void {
     const t = this.el.toast;
@@ -135,6 +166,7 @@ export class App {
     this.mapW = mapW;
     this.mapH = mapH;
     const up = this.renderer.setMap(map, mapW, mapH);
+    this.minimap.setMap(map.terrain, map.buildings, mapW, mapH);
     const st = map.stats;
     this.mapInfo = `${map.name} · ${st.terrainPolygons} rock polys / ${st.terrainVertices} verts · ${st.buildings} buildings · gen ${st.totalMs.toFixed(0)} ms · gpu upload ${up.ms.toFixed(0)} ms`;
     const cam = this.renderer.camera;
@@ -193,6 +225,13 @@ export class App {
         }
         this.pathOverlay.update(a, b, alpha);
         this.markers.update(now, this.renderer.camera.zoom);
+        this.minimap.update(now, b.views, this.selection.flags);
+        this.panel.update(b.views, this.selection.handles, this.groups);
+        if (now - this.lastPrune > 2000) {
+          this.lastPrune = now;
+          const v = b.views;
+          this.groups.prune((h) => v.u32[SNAP_HEADER_WORDS + (h & 0xffff) * INST_WORDS + I_HANDLE] === h);
+        }
         const under = this.nav.enabled ? [...this.underLines, this.nav.edges] : this.underLines;
         this.renderer.render({
           a, b, alpha, mapW: this.mapW, mapH: this.mapH, under, over: this.overLines,
@@ -266,8 +305,32 @@ export class App {
         this.el.hud.parentElement?.classList.toggle('hidden');
         break;
       case 'Escape':
-        this.selection.clear();
+        if (this.commands.mode !== 'none') this.commands.setMode('none');
+        else this.selection.clear();
         break;
+      case 'KeyM':
+        this.commands.setMode('move');
+        break;
+      case 'KeyP':
+        this.commands.setMode('patrol');
+        break;
+      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
+      case 'Digit6': case 'Digit7': case 'Digit8': case 'Digit9': case 'Digit0': {
+        const n = Number(e.code.slice(5));
+        e.preventDefault();
+        if (e.ctrlKey || e.metaKey) {
+          this.groups.assign(n, this.selection.handles);
+          this.showToast(`Control group ${n}: ${this.selection.handles.size} units`);
+        } else if (e.shiftKey) {
+          this.groups.add(n, this.selection.handles);
+        } else {
+          const { handles, double } = this.groups.recall(n, performance.now());
+          if (handles.length === 0) break;
+          this.selection.set(handles, false);
+          if (double) this.centerOnHandles(handles);
+        }
+        break;
+      }
       case 'Equal':
         this.host.command({ kind: 'spawnRandom', count: 1000 });
         break;

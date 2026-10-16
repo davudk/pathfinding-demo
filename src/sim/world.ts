@@ -6,7 +6,7 @@ import { Profiler, SIM_SYSTEM_NAMES } from '../shared/profiler';
 import type { FromSim, SceneConfig } from '../shared/protocol';
 import { NavMesh } from './nav/navmesh';
 import { PathQueue, PathStore } from './nav/pathQueue';
-import { Orders } from './move/orders';
+import { OrderQueues, Orders } from './move/orders';
 import { Locomotion } from './move/locomotion';
 import { UnitGrid } from './spatial/grid';
 import { WallGrid } from './spatial/wallGrid';
@@ -24,6 +24,7 @@ export interface World {
   readonly paths: PathStore;
   readonly pathQueue: PathQueue;
   readonly orders: Orders;
+  readonly queues: OrderQueues;
   readonly grid: UnitGrid;
   readonly walls: WallGrid;
   readonly locomotion: Locomotion;
@@ -50,6 +51,7 @@ export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World
     paths,
     pathQueue: new PathQueue(nav, capacity, paths),
     orders: new Orders(),
+    queues: new OrderQueues(capacity),
     grid: new UnitGrid(map.width, map.height, 2, capacity),
     walls: new WallGrid(map.width, map.height),
     locomotion: new Locomotion(capacity),

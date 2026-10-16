@@ -20,7 +20,10 @@ function applyCommand(world: World, cmd: SimCommand): void {
       removeBuildingAt(world, cmd.x, cmd.y);
       break;
     case 'move':
-      issueMove(world, cmd.handles, cmd.x, cmd.y);
+      issueMove(world, cmd.handles, cmd.x, cmd.y, cmd.queue === true);
+      break;
+    case 'patrol':
+      issueMove(world, cmd.handles, cmd.x, cmd.y, cmd.queue === true, true);
       break;
     case 'stop':
       issueStop(world, cmd.handles, false);

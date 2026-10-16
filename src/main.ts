@@ -10,7 +10,8 @@ const $ = <T extends HTMLElement>(id: string): T => {
 const params = new URLSearchParams(location.search);
 try {
   const app = new App(
-    { canvas: $('view'), hud: $('hud-rows'), graph: $('hud-graph'), selBox: $('selbox'), help: $('help'), toast: $('toast') },
+    { canvas: $('view'), hud: $('hud-rows'), graph: $('hud-graph'), selBox: $('selbox'), help: $('help'), toast: $('toast'),
+      minimap: $('minimap'), selSummary: $('sel-summary'), groupBar: $('group-bar') },
     sceneFromUrl(params),
     { main: params.get('sim') === 'main', forceTransfer: params.get('transport') === 'transfer' },
   );

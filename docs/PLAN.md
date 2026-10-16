@@ -355,3 +355,17 @@ Execution plan:
   - every scenario: wall penetration ≤ 1.4 cm and end overlap at the 3% slack.
 - **Cost:** 10k ambient units take about 5 ms per sim tick in Node (steering 2.3 ms).
 - *Polish follow-up (M9):* crossing armies should form lanes. Right now they knot in the middle before streaming apart.
+
+**M5 — orders and input**
+- **Per-unit order queues** (8 entries, ring buffers) reference shared `MoveOrder`s. Orders are reference-counted by queue entries, so patrol loops keep theirs alive and nothing leaks; tests assert this.
+  - A plain command replaces the queue; Shift appends.
+  - Patrol puts [target, start] into the queue and cycles finished patrol entries to the back. A shift-patrol after another patrol extends the loop.
+- **Magic box.** If the click is inside the group's bounding box (or there is only one unit), every unit converges on the point. Otherwise each unit keeps its formation offset. Offsets are compressed to `max(1.4 × packing radius, 6)` when the group is spread out. Shift-queued orders compute formations from where each unit's queue ends.
+- **Input:**
+  - right click moves, Shift queues;
+  - M / P arm move or patrol targeting, Shift keeps the mode armed, Esc cancels;
+  - S stops, H holds;
+  - Ctrl/⌘+N assigns a control group, Shift+N adds to it, N recalls it, and N twice centers on it.
+- **Order lines:** the current leg is the funnelled path (green, or yellow while patrolling); queued legs are straight; patrol loops are drawn closed.
+- **Minimap:** terrain and buildings are baked once, units are faction dots refreshed at 10 Hz (selected units in green), and the camera frame is drawn on top. Click/drag moves the camera; right click moves the selection.
+- **Bottom panel:** control-group bar plus a selection summary by faction and type.

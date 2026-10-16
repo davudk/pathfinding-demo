@@ -18,8 +18,11 @@
         <dt>Left click / drag</dt><dd>Select / box select</dd>
         <dt>Shift + click / drag</dt><dd>Toggle / add to selection</dd>
         <dt>Double-click, Ctrl + click</dt><dd>Select same type in view</dd>
-        <dt>Right click</dt><dd>Move selected units</dd>
+        <dt>Right click</dt><dd>Move (Shift: queue waypoint)</dd>
+        <dt>M / P + click</dt><dd>Move / patrol (Shift keeps the mode)</dd>
         <dt>S / H</dt><dd>Stop / hold position</dd>
+        <dt>Ctrl + 1–9 / Shift + 1–9 / 1–9</dt><dd>Assign / add to / recall control group (twice: center)</dd>
+        <dt>Minimap</dt><dd>Click/drag: camera · right click: move</dd>
         <dt>Two-finger scroll, arrows, screen edge, middle drag</dt><dd>Pan camera</dd>
         <dt>Pinch, mouse wheel</dt><dd>Zoom to cursor</dd>
         <dt>Space / .</dt><dd>Pause / step one tick</dd>
@@ -36,6 +39,11 @@
     </div>
     <div id="hint">F1 — controls</div>
     <div id="toast"></div>
+    <canvas id="minimap"></canvas>
+    <div id="bottom">
+      <div id="group-bar"></div>
+      <div id="sel-summary" class="hidden"></div>
+    </div>
     <div id="fatal" class="hidden"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
