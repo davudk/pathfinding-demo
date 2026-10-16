@@ -21,6 +21,7 @@ export function placeBuilding(world: World, x: number, y: number, w: number, h: 
   m.buildingRings.push(ring);
   world.nav.addObstacle(ring);
   afterBuildingsChanged(world);
+  world.walls.rebuild(world.nav);
   return null;
 }
 
@@ -34,6 +35,7 @@ export function removeBuildingAt(world: World, x: number, y: number): boolean {
   m.buildings.splice(i, 1);
   m.buildingRings.splice(i, 1);
   afterBuildingsChanged(world);
+  world.walls.rebuild(world.nav);
   return true;
 }
 

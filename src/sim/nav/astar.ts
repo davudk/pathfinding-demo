@@ -418,6 +418,7 @@ export class PathSearch {
   private straight(q: PathQuery, t: number): PathResult {
     const cdt = this.nav.cdt;
     const res = this.repair(funnel(buildCorridor(cdt, []), q.sx, q.sy, q.gx, q.gy, q.r, ringVertices(cdt, new Set([t]), 2)), q.r);
+    this.lastExpansions = 0;
     return { ...res, complete: true, clear: this.isClear(res, q.r), expansions: 0, corridor: Int32Array.of(t) };
   }
 }

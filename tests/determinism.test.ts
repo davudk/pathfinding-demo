@@ -8,7 +8,17 @@ function run(seed: number, ticks: number): number {
   return hashWorld(w);
 }
 
+function runScenario(name: string, ticks: number): number {
+  const w = createWorld({ name, seed: 3, units: 0, mapSeed: 1337 }, 2048);
+  for (let t = 0; t < ticks; t++) step(w, []);
+  return hashWorld(w);
+}
+
 describe('determinism', () => {
+  it('scenarios with orders, paths, contacts and detours replay identically', () => {
+    for (const name of ['choke', 'holdline', 'cross']) expect(runScenario(name, 600), name).toBe(runScenario(name, 600));
+  });
+
   it('same seed and commands produce identical state', () => {
     expect(run(42, 300)).toBe(run(42, 300));
   });

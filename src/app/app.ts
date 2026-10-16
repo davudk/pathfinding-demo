@@ -303,6 +303,12 @@ export class App {
         this.host.command({ kind: 'placeBuilding', x: cam.screenToWorldX(this.pointerX), y: cam.screenToWorldY(this.pointerY), w, h, faction: Faction.Player, type: 'barracks' });
         break;
       }
+      case 'KeyS':
+      case 'KeyH':
+        if (this.selection.handles.size > 0) {
+          this.host.command({ kind: e.code === 'KeyS' ? 'stop' : 'hold', handles: Int32Array.from(this.selection.handles) });
+        }
+        break;
       case 'KeyX': {
         if (this.pointerX < 0) break;
         const cam = this.renderer.camera;

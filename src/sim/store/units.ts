@@ -40,6 +40,30 @@ export class UnitStore {
   readonly state: Uint8Array;
   readonly flags: Uint32Array;
 
+  // Locomotion state.
+  /** Preferred velocity from path following (before steering). */
+  readonly prefVX: Float64Array;
+  readonly prefVY: Float64Array;
+  /** Move order the unit belongs to (0 = none); units of one order arrive together. */
+  readonly orderId: Int32Array;
+  /** Final goal of the current order (per unit). */
+  readonly goalX: Float64Array;
+  readonly goalY: Float64Array;
+  /** Avoidance side memory (−1 / 0 / +1) and the tick it expires (hysteresis). */
+  readonly avoidSide: Int8Array;
+  readonly avoidUntil: Int32Array;
+  /** Stuck detection: reference position, tick it was sampled, escalation stage. */
+  readonly stuckX: Float64Array;
+  readonly stuckY: Float64Array;
+  readonly stuckTick: Int32Array;
+  readonly stuckStage: Uint8Array;
+  /** Tick until which the unit squeezes through crowds with extra push priority. */
+  readonly squeezeUntil: Int32Array;
+  /** Tick the unit arrived (Arrived → Idle after a short settle time). */
+  readonly arrivedTick: Int32Array;
+  /** Wander heading for ambient drifting units. */
+  readonly wander: Float32Array;
+
   /** Generation per slot; 0 = never used. */
   readonly gen: Uint16Array;
   readonly alive: Uint8Array;
@@ -70,6 +94,20 @@ export class UnitStore {
     this.archetype = new Uint8Array(capacity);
     this.state = new Uint8Array(capacity);
     this.flags = new Uint32Array(capacity);
+    this.prefVX = new Float64Array(capacity);
+    this.prefVY = new Float64Array(capacity);
+    this.orderId = new Int32Array(capacity);
+    this.goalX = new Float64Array(capacity);
+    this.goalY = new Float64Array(capacity);
+    this.avoidSide = new Int8Array(capacity);
+    this.avoidUntil = new Int32Array(capacity);
+    this.stuckX = new Float64Array(capacity);
+    this.stuckY = new Float64Array(capacity);
+    this.stuckTick = new Int32Array(capacity);
+    this.stuckStage = new Uint8Array(capacity);
+    this.squeezeUntil = new Int32Array(capacity);
+    this.arrivedTick = new Int32Array(capacity);
+    this.wander = new Float32Array(capacity);
     this.gen = new Uint16Array(capacity);
     this.alive = new Uint8Array(capacity);
     this.active = new Int32Array(capacity);
@@ -101,6 +139,20 @@ export class UnitStore {
     this.archetype[i] = archetype;
     this.state[i] = MoveState.Idle;
     this.flags[i] = 0;
+    this.prefVX[i] = 0;
+    this.prefVY[i] = 0;
+    this.orderId[i] = 0;
+    this.goalX[i] = x;
+    this.goalY[i] = y;
+    this.avoidSide[i] = 0;
+    this.avoidUntil[i] = 0;
+    this.stuckX[i] = x;
+    this.stuckY[i] = y;
+    this.stuckTick[i] = 0;
+    this.stuckStage[i] = 0;
+    this.squeezeUntil[i] = 0;
+    this.arrivedTick[i] = 0;
+    this.wander[i] = heading;
 
     this.denseIndex[i] = this.count;
     this.active[this.count++] = i;

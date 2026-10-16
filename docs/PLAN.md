@@ -333,3 +333,25 @@ Execution plan:
 - **Unreachable goals** resolve to the path toward the reachable crossing point closest to the goal, considering only valid positions. Goals and starts are snapped to valid positions first: clicking on rock moves to the nearest spot the unit fits.
 - **Cost.** About 1 ms per query on average and about 7 ms worst (cross-map colossal) in Node, roughly 2 ms per cross-map path in the worker. A 300-unit order is served over about 100 ticks under the 4 ms per-tick budget. M6 group fields address this.
 - **Temporary follower.** M3 has a simple waypoint follower with no acceleration and no unit interaction. M4 replaces it.
+
+**M4 — locomotion**
+- **Pipeline:** preferred velocity (path follow with arrive-decel / ambient wander) → steering (separation among group-mates and idle allies; time-to-collision avoidance only of units we can't push, with 0.5 s side hysteresis; acceleration limit) → integrate + wall projection → contact pairs from the counting-sort grid → 4 Jacobi iterations with ω = 1.3 → velocities → arrival / stuck / heading.
+- **Push rules:**
+  - Same team: holders never yield, and idle units always yield to movers. Movers of different priority split 25/75 (soft), and equal priorities split by area.
+  - Different teams: a stationary unit never yields to an enemy mover, which has to go around. Two movers split by mass.
+- **Arrival:**
+  - direct arrival at the snapped goal;
+  - chain arrival on touching an arrived group-mate within the group's packing radius (Σr²/0.75);
+  - blocked-progress arrival within 2× that radius.
+
+  Arrived units settle to Idle and become pushable, and never re-seek their goal.
+- **Momentum:** only real shoves (> 0.9 u/s) carry momentum. Settling corrections among resting units don't, so blobs come completely to rest (measured jitter: 0).
+- **Stuck ladder:** squeeze plus a local detour, then a global repath, then another detour, then give up. The detour is a BFS on a 4-cells-per-unit grid that marks static obstacles (occupancy, inflated by the unit's radius) and units that won't move (holders, stationary enemies). It runs in a 24-unit window, falling back to a 52-unit one, targets the farthest free point *along* the remaining path, and splices the result in. This is how units get around walls of hold-position units.
+- **Determinism fix:** the path queue's per-tick budget is counted in A* expansions (12k per tick), not wall time. Time-based budgets made the simulation depend on machine speed. The determinism test now replays the choke, holdline and cross scenarios.
+- **Measured (headless, Node):**
+  - choke: 200 units through the 4-wide gap in 31 s;
+  - holdline: ≥ 95% through the 1-wide gap, holders displaced < 0.1;
+  - cross: 300 units, no deadlock, 37 s;
+  - every scenario: wall penetration ≤ 1.4 cm and end overlap at the 3% slack.
+- **Cost:** 10k ambient units take about 5 ms per sim tick in Node (steering 2.3 ms).
+- *Polish follow-up (M9):* crossing armies should form lanes. Right now they knot in the middle before streaming apart.

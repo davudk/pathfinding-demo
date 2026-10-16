@@ -1,10 +1,7 @@
 import { SimSys } from '../shared/profiler';
 import type { SimCommand } from '../shared/protocol';
 import { spawnRandomUnits } from './scenarios/stress';
-import { driftUnits } from './move/drift';
-import { followPaths } from './move/follow';
-import { MoveState, UNIT_FLAG_DRIFT } from './store/units';
-import { handleIndex } from '../shared/handles';
+import { issueMove, issueStop } from './move/orders';
 import { placeBuilding, removeBuildingAt } from './edit';
 import type { World } from './world';
 
@@ -22,22 +19,20 @@ function applyCommand(world: World, cmd: SimCommand): void {
     case 'removeBuildingAt':
       removeBuildingAt(world, cmd.x, cmd.y);
       break;
-    case 'move': {
-      const u = world.units;
-      for (const h of cmd.handles) {
-        if (!u.isValid(h)) continue;
-        const i = handleIndex(h);
-        u.flags[i] &= ~UNIT_FLAG_DRIFT;
-        u.state[i] = MoveState.Moving;
-        world.pathQueue.request(h, cmd.x, cmd.y);
-      }
+    case 'move':
+      issueMove(world, cmd.handles, cmd.x, cmd.y);
       break;
-    }
+    case 'stop':
+      issueStop(world, cmd.handles, false);
+      break;
+    case 'hold':
+      issueStop(world, cmd.handles, true);
+      break;
   }
 }
 
-/** Path search time per tick (player orders get served first in M5+). */
-const PATH_BUDGET_MS = 4;
+/** Path search work per tick, in A* node expansions (≈ 3–4 ms in the worker). */
+const PATH_BUDGET_EXPANSIONS = 12_000;
 
 /** Advances the world by one fixed tick. `commands` were stamped for this tick. */
 export function step(world: World, commands: readonly SimCommand[]): void {
@@ -45,16 +40,23 @@ export function step(world: World, commands: readonly SimCommand[]): void {
   p.begin(SimSys.Total);
 
   p.begin(SimSys.Commands);
+  while (world.script.length > 0 && world.script[0].tick <= world.tick) applyCommand(world, world.script.shift()!.cmd);
   for (const c of commands) applyCommand(world, c);
   p.end(SimSys.Commands);
 
   p.begin(SimSys.Path);
-  world.pathQueue.process(world.units, PATH_BUDGET_MS, () => {});
+  world.pathQueue.process(world.units, PATH_BUDGET_EXPANSIONS, (slot, ok) => {
+    // The unit's goal becomes the (snapped / reachable) end of its path.
+    const pts = world.paths.points[slot];
+    if (ok && pts) {
+      world.units.goalX[slot] = pts[pts.length - 2];
+      world.units.goalY[slot] = pts[pts.length - 1];
+    }
+  });
   p.end(SimSys.Path);
 
   p.begin(SimSys.Move);
-  followPaths(world);
-  driftUnits(world);
+  world.locomotion.step(world);
   p.end(SimSys.Move);
 
   world.tick++;

@@ -120,7 +120,9 @@ export type SimCommand =
   | { readonly kind: 'despawn'; readonly handles: Int32Array }
   | { readonly kind: 'placeBuilding'; readonly x: number; readonly y: number; readonly w: number; readonly h: number; readonly faction: number; readonly type: string }
   | { readonly kind: 'removeBuildingAt'; readonly x: number; readonly y: number }
-  | { readonly kind: 'move'; readonly handles: Int32Array; readonly x: number; readonly y: number };
+  | { readonly kind: 'move'; readonly handles: Int32Array; readonly x: number; readonly y: number }
+  | { readonly kind: 'stop'; readonly handles: Int32Array }
+  | { readonly kind: 'hold'; readonly handles: Int32Array };
 
 /** Path of one watched unit: polyline and the index of its next waypoint. */
 export interface PathEntry {

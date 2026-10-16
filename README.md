@@ -17,6 +17,7 @@ URL parameters:
 
 | Param | Default | Meaning |
 |---|---|---|
+| `scene` | stress | `stress` (10k ambient units), `choke` (200 through a 4-wide gap), `holdline` (movers funnel through a gap in a line of holders), `cross` (two armies swap sides), `blob` (mixed group converges and settles) |
 | `units` | 10000 | number of units in the stress scene |
 | `seed` | 42 | RNG seed (the simulation is deterministic per seed) |
 | `mapSeed` | 1337 | seed of the procedural 9-zone map |

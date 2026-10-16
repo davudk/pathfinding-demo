@@ -87,13 +87,17 @@ export class PathQueue {
     return this.queue.length - this.head;
   }
 
-  /** Serves requests until `budgetMs` is used (at least one request per call). */
-  process(units: UnitStore, budgetMs: number, onDone: (slot: number, ok: boolean) => void): void {
+  /**
+   * Serves requests until `budgetExpansions` search nodes have been expanded (at least one
+   * request per call). The budget is counted in search work, not wall time, so the simulation
+   * stays deterministic regardless of machine speed.
+   */
+  process(units: UnitStore, budgetExpansions: number, onDone: (slot: number, ok: boolean) => void): void {
     const t0 = performance.now();
     let served = 0;
     let expansions = 0;
     while (this.head < this.queue.length) {
-      if (served > 0 && performance.now() - t0 >= budgetMs) break;
+      if (served > 0 && expansions >= budgetExpansions) break;
       const req = this.queue[this.head++];
       const slot = handleIndex(req.handle);
       if (this.latest[slot] !== req.seq || !units.isValid(req.handle)) continue;
@@ -109,7 +113,8 @@ export class PathQueue {
         continue;
       }
       const res = this.search.find({ sx: start[0], sy: start[1], gx: goal[0], gy: goal[1], r });
-      expansions += this.search.lastExpansions;
+      // Count at least a nominal cost per request so trivial queries can't flood a tick.
+      expansions += Math.max(64, this.search.lastExpansions);
       if (!res) {
         this.paths.set(slot, null, false);
         onDone(slot, false);

@@ -6,8 +6,12 @@ import { Profiler, SIM_SYSTEM_NAMES } from '../shared/profiler';
 import type { FromSim, SceneConfig } from '../shared/protocol';
 import { NavMesh } from './nav/navmesh';
 import { PathQueue, PathStore } from './nav/pathQueue';
+import { Orders } from './move/orders';
+import { Locomotion } from './move/locomotion';
+import { UnitGrid } from './spatial/grid';
+import { WallGrid } from './spatial/wallGrid';
 import { UnitStore } from './store/units';
-import { spawnRandomUnits } from './scenarios/stress';
+import { setupScenario, type ScriptedCommand } from './scenarios';
 
 export interface World {
   tick: number;
@@ -19,6 +23,12 @@ export interface World {
   readonly nav: NavMesh;
   readonly paths: PathStore;
   readonly pathQueue: PathQueue;
+  readonly orders: Orders;
+  readonly grid: UnitGrid;
+  readonly walls: WallGrid;
+  readonly locomotion: Locomotion;
+  /** Scenario commands waiting for their tick. */
+  script: ScriptedCommand[];
   /** Messages for the main thread, flushed by the runner after each tick. */
   readonly events: FromSim[];
   readonly prof: Profiler;
@@ -39,10 +49,16 @@ export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World
     nav,
     paths,
     pathQueue: new PathQueue(nav, capacity, paths),
+    orders: new Orders(),
+    grid: new UnitGrid(map.width, map.height, 2, capacity),
+    walls: new WallGrid(map.width, map.height),
+    locomotion: new Locomotion(capacity),
+    script: [],
     events: [],
     prof: new Profiler(SIM_SYSTEM_NAMES, 120),
   };
-  spawnRandomUnits(world, scene.units);
+  world.walls.rebuild(nav);
+  world.script = setupScenario(world, scene.name, scene.units);
   return world;
 }
 

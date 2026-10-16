@@ -6,7 +6,7 @@ import { clearance, snapToWalkable } from '../src/sim/nav/query';
 import { CLEARANCE_TOLERANCE } from '../src/sim/nav/astar';
 import { MoveState } from '../src/sim/store/units';
 
-describe('move orders (M3 follower)', () => {
+describe('move orders', () => {
   it('units of every size reach their goals without entering obstacles', () => {
     const w = createWorld({ name: 'test', seed: 1, units: 0, mapSeed: 1337 }, 256);
     const archs = [ArchetypeId.Skitter, ArchetypeId.Walker, ArchetypeId.Tank, ArchetypeId.Behemoth, ArchetypeId.Colossal];
@@ -19,7 +19,7 @@ describe('move orders (M3 follower)', () => {
     const goal: [number, number] = [210, 64]; // through the ramp, into the chokepoint field
     step(w, [{ kind: 'move', handles: Int32Array.from(handles), x: goal[0], y: goal[1] }]);
     let worst = Infinity;
-    for (let t = 0; t < 30 * 90 && handles.some((h) => w.units.state[h & 0xffff] !== MoveState.Idle); t++) {
+    for (let t = 0; t < 30 * 90 && handles.some((h) => w.units.state[h & 0xffff] === MoveState.Moving); t++) {
       step(w, []);
       for (const h of handles) {
         const i = h & 0xffff;
@@ -30,9 +30,11 @@ describe('move orders (M3 follower)', () => {
     expect(worst).toBeGreaterThanOrEqual(-CLEARANCE_TOLERANCE);
     for (const h of handles) {
       const i = h & 0xffff;
-      expect(w.units.state[i]).toBe(MoveState.Idle);
-      // Everyone ends near the goal (the goal is snapped per radius; no unit avoidance yet).
-      expect(Math.hypot(w.units.posX[i] - goal[0], w.units.posY[i] - goal[1])).toBeLessThan(3);
+      expect(w.units.state[i]).not.toBe(MoveState.Moving);
+      // Everyone settles around the goal, within about the group's packing radius.
+      const r2 = archs.reduce((s, a) => s + ARCHETYPES[a].radius ** 2, 0);
+      const groupR = Math.sqrt(r2 / 0.75);
+      expect(Math.hypot(w.units.posX[i] - goal[0], w.units.posY[i] - goal[1])).toBeLessThan(2 * groupR + 2);
     }
   });
 });
