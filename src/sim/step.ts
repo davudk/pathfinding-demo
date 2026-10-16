@@ -57,6 +57,7 @@ export function step(world: World, commands: readonly SimCommand[]): void {
   p.begin(SimSys.Commands);
   while (world.script.length > 0 && world.script[0].tick <= world.tick) applyCommand(world, world.script.shift()!.cmd);
   for (const c of commands) applyCommand(world, c);
+  world.brains.think(world);
   p.end(SimSys.Commands);
 
   p.begin(SimSys.Path);

@@ -15,7 +15,8 @@
 import { SIM_DT } from '../../shared/constants';
 import { MAX_UNIT_RADIUS } from '../../shared/archetypes';
 import { turnToward } from '../../shared/math';
-import { MoveState, UNIT_FLAG_DRIFT } from '../store/units';
+import { MoveState } from '../store/units';
+import { SimSys } from '../../shared/profiler';
 import type { World } from '../world';
 import { arrive } from './orders';
 import { planDetour } from './detour';
@@ -37,7 +38,9 @@ const STUCK_FRACTION = 0.12; // of expected travel
 const STALL_WINDOW = 15; // ticks (0.5 s) for blocked-progress arrival
 const SQUEEZE_TICKS = 30;
 const SQUEEZE_BONUS = 15;
-const WANDER_SPEED = 0.55;
+/** Neutral units start yielding when an army unit comes this close (beyond both radii). */
+const FLEE_RADIUS = 2.5;
+const NEUTRAL = 4;
 /** Per-tick displacement below which a resting unit doesn't inherit momentum (0.9 u/s). */
 const SHOVE_MIN = 0.03;
 /** Local detour plans allowed per tick (each costs ~0.3 ms). */
@@ -101,20 +104,29 @@ export class Locomotion {
       this.oldX[i] = u.posX[i];
       this.oldY[i] = u.posY[i];
     }
+    const p = world.prof;
+    p.begin(SimSys.Follow);
     this.preferred(world);
+    p.end(SimSys.Follow);
+    p.begin(SimSys.Steer);
     this.steer(world);
+    p.end(SimSys.Steer);
+    p.begin(SimSys.Grid);
     this.integrate(world);
     world.grid.build(act, n, u.posX, u.posY);
+    p.end(SimSys.Grid);
+    p.begin(SimSys.Contacts);
     this.collectPairs(world);
     this.solveContacts(world);
     this.finishVelocities(world);
+    p.end(SimSys.Contacts);
     this.arrivalAndStuck(world);
   }
 
   // ── 1. Preferred velocity ──────────────────────────────────────────────────
 
   private preferred(world: World): void {
-    const { units: u, paths, rng } = world;
+    const { units: u, paths } = world;
     const n = u.count;
     const tick = world.tick;
     for (let k = 0; k < n; k++) {
@@ -123,20 +135,6 @@ export class Locomotion {
       u.prefVX[i] = 0;
       u.prefVY[i] = 0;
       if (st === MoveState.Arrived && tick - u.arrivedTick[i] >= SETTLE_TICKS) u.state[i] = MoveState.Idle;
-      if (u.flags[i] & UNIT_FLAG_DRIFT) {
-        // Ambient wander: slowly turning heading; turn away from walls we touched.
-        let a = u.wander[i] + (rng.float() - 0.5) * 0.35;
-        const wx = this.wallNX[i], wy = this.wallNY[i];
-        if ((wx !== 0 || wy !== 0) && Math.cos(a) * wx + Math.sin(a) * wy < 0) {
-          a = Math.atan2(wy, wx) + (rng.float() - 0.5) * 1.6;
-        }
-        u.wander[i] = a;
-        const s = u.maxSpeed[i] * WANDER_SPEED;
-        u.prefVX[i] = Math.cos(a) * s;
-        u.prefVY[i] = Math.sin(a) * s;
-        u.state[i] = MoveState.Moving;
-        continue;
-      }
       if (st !== MoveState.Moving) continue;
       const pts = paths.points[i];
       const x = u.posX[i], y = u.posY[i];
@@ -211,9 +209,17 @@ export class Locomotion {
         continue;
       }
       if (st !== S_MOVING) {
-        // Idle / arrived: coast out pushes, then rest.
+        // Idle / arrived: coast out pushes, then rest. Neutral critters scatter from armies.
         let vx = velX[i] * damp, vy = velY[i] * damp;
-        if (vx * vx + vy * vy < 0.0025) vx = vy = 0;
+        if (faction[i] === NEUTRAL && this.flee(world, i)) {
+          vx += this.fleeX * u.maxSpeed[i];
+          vy += this.fleeY * u.maxSpeed[i];
+          const l = Math.hypot(vx, vy), m = u.maxSpeed[i];
+          if (l > m) {
+            vx *= m / l;
+            vy *= m / l;
+          }
+        } else if (vx * vx + vy * vy < 0.0025) vx = vy = 0;
         velX[i] = vx;
         velY[i] = vy;
         continue;
@@ -276,6 +282,10 @@ export class Locomotion {
       }
       let dvx = pvx + W_SEP * sepX * maxS;
       let dvy = pvy + W_SEP * sepY * maxS;
+      if (faction[i] === NEUTRAL && this.flee(world, i)) {
+        dvx += this.fleeX * maxS * 1.5;
+        dvy += this.fleeY * maxS * 1.5;
+      }
       if (best >= 0 && pLen > 1e-6) {
         const dx = posX[best] - x, dy = posY[best] - y;
         const fx = pvx / pLen, fy = pvy / pLen;
@@ -314,6 +324,44 @@ export class Locomotion {
       velX[i] = vx + ax;
       velY[i] = vy + ay;
     }
+  }
+
+  private fleeX = 0;
+  private fleeY = 0;
+
+  /**
+   * Neutral units yield to armies with a steering nudge (never a push): away from non-neutral
+   * moving units that come within a short radius. Writes the unit-length direction to fleeX/Y.
+   */
+  private flee(world: World, i: number): boolean {
+    const { units: u, grid } = world;
+    const x = u.posX[i], y = u.posY[i];
+    const R = u.radius[i] + FLEE_RADIUS;
+    const rg = this.range;
+    grid.range(x, y, R + MAX_UNIT_RADIUS, rg);
+    let fx = 0, fy = 0;
+    for (let cy = rg[1]; cy <= rg[3]; cy++) {
+      for (let cx = rg[0]; cx <= rg[2]; cx++) {
+        const c = cy * grid.cols + cx;
+        for (let q = grid.cellStart[c]; q < grid.cellStart[c + 1]; q++) {
+          const j = grid.items[q];
+          if (u.faction[j] === NEUTRAL || u.state[j] !== S_MOVING) continue;
+          const dx = x - u.posX[j], dy = y - u.posY[j];
+          const lim = R + u.radius[j];
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= lim * lim || d2 < 1e-12) continue;
+          const d = Math.sqrt(d2);
+          const w = 1 - d / lim;
+          fx += (dx / d) * w;
+          fy += (dy / d) * w;
+        }
+      }
+    }
+    const l = Math.hypot(fx, fy);
+    if (l < 1e-6) return false;
+    this.fleeX = (fx / l) * Math.min(1, l);
+    this.fleeY = (fy / l) * Math.min(1, l);
+    return true;
   }
 
   // ── 3. Integrate + walls ─────────────────────────────────────────────────────
@@ -541,6 +589,23 @@ export class Locomotion {
         u.posY[i] = ny;
         dx = nx - this.oldX[i];
         dy = ny - this.oldY[i];
+      }
+      // Final safety pass: anything that moved ends outside walls and inside the map.
+      if (dx !== 0 || dy !== 0) {
+        const r = u.radius[i];
+        let fx = u.posX[i], fy = u.posY[i];
+        if (world.walls.resolve(fx, fy, r, this.tmp)) {
+          fx = this.tmp[0];
+          fy = this.tmp[1];
+          this.wallNX[i] = this.tmp[2];
+          this.wallNY[i] = this.tmp[3];
+        }
+        fx = Math.min(world.mapW - r, Math.max(r, fx));
+        fy = Math.min(world.mapH - r, Math.max(r, fy));
+        u.posX[i] = fx;
+        u.posY[i] = fy;
+        dx = fx - this.oldX[i];
+        dy = fy - this.oldY[i];
       }
       const st = u.state[i];
       if (st === MoveState.Moving) {

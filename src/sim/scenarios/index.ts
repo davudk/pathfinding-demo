@@ -7,14 +7,14 @@ import { Faction } from '../../shared/factions';
 import type { SimCommand } from '../../shared/protocol';
 import { snapToWalkable } from '../nav/query';
 import type { World } from '../world';
-import { spawnRandomUnits } from './stress';
+import { spawnFromMap, spawnRandomUnits } from './stress';
 
 export interface ScriptedCommand {
   readonly tick: number;
   readonly cmd: SimCommand;
 }
 
-export const SCENARIOS = ['stress', 'choke', 'holdline', 'cross', 'blob', 'drop'] as const;
+export const SCENARIOS = ['stress', 'choke', 'holdline', 'cross', 'blob', 'drop', 'empty'] as const;
 export type ScenarioName = (typeof SCENARIOS)[number];
 
 /** Spawns `count` units of an archetype in a jittered grid filling the rect; returns handles. */
@@ -91,8 +91,15 @@ export function setupScenario(world: World, name: string, units: number): Script
       script.push({ tick: 90, cmd: { kind: 'placeBuilding', def: { id: 'drop', faction: Faction.Neutral, type: 'hall', center: [70, 120], size: [6, 6], rot: 0 } } });
       break;
     }
-    default:
-      spawnRandomUnits(world, units);
+    case 'empty':
+      break;
+    default: {
+      if (name !== 'stress') break; // unknown scenario names start empty (tests use this)
+      // Ambient world: the map's own armies, patrols, herds and convoys, topped up with
+      // random wanderers / patrols of the other factions to reach `units`.
+      const n = spawnFromMap(world);
+      spawnRandomUnits(world, Math.max(0, units - n));
+    }
   }
   return script;
 }

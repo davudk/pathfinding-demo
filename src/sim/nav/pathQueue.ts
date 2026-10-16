@@ -66,9 +66,31 @@ export interface PathStats {
   expansions: number;
 }
 
+/** Request priorities: player orders are served before ambient AI. */
+export const PRIORITY_PLAYER = 0;
+export const PRIORITY_AI = 1;
+
+class Fifo {
+  items: Request[] = [];
+  head = 0;
+  get size(): number {
+    return this.items.length - this.head;
+  }
+  push(r: Request): void {
+    this.items.push(r);
+  }
+  shift(): Request {
+    const r = this.items[this.head++];
+    if (this.head > 1024 && this.head * 2 > this.items.length) {
+      this.items = this.items.slice(this.head);
+      this.head = 0;
+    }
+    return r;
+  }
+}
+
 export class PathQueue {
-  private queue: Request[] = [];
-  private head = 0;
+  private readonly queues = [new Fifo(), new Fifo()];
   private seq = 0;
   /** Latest request sequence number per slot; older requests for the slot are dropped. */
   private latest: Int32Array;
@@ -80,12 +102,12 @@ export class PathQueue {
     this.search = new PathSearch(nav);
   }
 
-  request(handle: number, gx: number, gy: number): void {
+  request(handle: number, gx: number, gy: number, priority = PRIORITY_PLAYER): void {
     const slot = handleIndex(handle);
     const seq = this.seq++;
     this.latest[slot] = seq;
     this.paths.pending[slot] = 1;
-    this.queue.push({ handle, gx, gy, seq });
+    this.queues[priority].push({ handle, gx, gy, seq });
   }
 
   cancel(slot: number): void {
@@ -94,7 +116,7 @@ export class PathQueue {
   }
 
   get size(): number {
-    return this.queue.length - this.head;
+    return this.queues[0].size + this.queues[1].size;
   }
 
   /**
@@ -106,9 +128,14 @@ export class PathQueue {
     const t0 = performance.now();
     let served = 0;
     let expansions = 0;
-    while (this.head < this.queue.length) {
+    let aiServed = 0;
+    for (;;) {
       if (served > 0 && expansions >= budgetExpansions) break;
-      const req = this.queue[this.head++];
+      // Player requests first; ambient AI gets the rest (and at least one per tick, so it never starves).
+      const q = this.queues[0].size > 0 && !(aiServed === 0 && expansions > budgetExpansions * 0.8 && this.queues[1].size > 0) ? this.queues[0] : this.queues[1];
+      if (q.size === 0) break;
+      const req = q.shift();
+      if (q === this.queues[1]) aiServed++;
       const slot = handleIndex(req.handle);
       if (this.latest[slot] !== req.seq || !units.isValid(req.handle)) continue;
       this.latest[slot] = -1;
@@ -136,10 +163,6 @@ export class PathQueue {
       pts[1] = units.posY[slot];
       this.paths.set(slot, pts, res.complete);
       onDone(slot, true);
-    }
-    if (this.head > 1024 && this.head * 2 > this.queue.length) {
-      this.queue = this.queue.slice(this.head);
-      this.head = 0;
     }
     this.stats.served = served;
     this.stats.queued = this.size;

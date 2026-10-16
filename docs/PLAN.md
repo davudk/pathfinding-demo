@@ -409,3 +409,17 @@ Execution plan:
   - Undo/redo (Ctrl/⌘+Z, Shift+Z, Y) replays inverse id-based commands. Edits the simulation rejects are dropped from history.
 - **Map I/O:** Export downloads the current map JSON (source shapes plus live buildings). Import validates it with `parseMap` and reloads with `?map=custom`.
 - **Scenario:** `?scene=drop`, in which a 6×6 building lands on a marching 100-unit column. Nobody is ever left inside it, and everyone still arrives (tested).
+
+**M8 — ambient AI and factions**
+- **Brains** (`sim/ai/brains.ts`) are per-unit FSMs that issue orders through the same order queues the player uses: Wander (pause 1–5 s, then a reachable point near home), Patrol, Route (convoy, ping-pong unless the route loops), Herd (a slow-wandering leader; members regroup when they stray beyond the herd radius and otherwise graze), Fidget.
+  - Thinking is time-sliced with random jitter, and capped at 80 brain-issued orders per tick.
+  - **Player override:** player commands set `UNIT_FLAG_PLAYER`. The brain stays out of the way until those orders finish, then waits 10 s and adopts the new position as home.
+- **Path priorities:** player requests are served first; AI requests use the rest of the budget, with at least one per tick so they never starve.
+- **Corridor cache:** an LRU of 2048 entries keyed by (start tri, goal tri, radius), holding entry-halfedge chains. A hit re-funnels the cached corridor with the actual endpoints, then repairs and validates it. About 27–29% hit rate in the ambient world, mostly from patrols and convoys.
+- **Neutral flee:** neutral units yield to moving non-neutral units within 2.5 with a steering nudge. They are never pushed, so the rule that factions never push each other still holds.
+- **Final safety pass:** every unit that moved gets a last wall resolve and a hard clamp to the map bounds. This fixed rare leaks: an idle unit left in a wall by a neighbor's correction, and a critter leaving the map.
+- **Ambient world (`stress`, default):** the map's own spawns (player army, red patrols, orange outpost, critter herds, rock-garden wanderers, town patrols, canyon convoy), topped up to `units` with random non-player wanderers (60%), patrols (25%) and fidgeters (15%).
+- **Measured:**
+  - 2000 units over 60 s: 96% of wanderers move, the path backlog stays ≤ 8, wall penetration is 0, and herds stay within a median of 1.7× their radius.
+  - 10k units in the production build: sim p50 9.6 ms, p95 13 ms per tick. The dev server is about 2× slower.
+- **Profiler:** per-stage timings (follow, steer, grid, contacts) are now shown in the HUD.

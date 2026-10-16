@@ -10,7 +10,8 @@
  *     formation (compressed if spread out); if inside, everyone converges on the point.
  */
 import { handleIndex } from '../../shared/handles';
-import { MoveState, UNIT_FLAG_DRIFT } from '../store/units';
+import { MoveState, UNIT_FLAG_PLAYER } from '../store/units';
+import { PRIORITY_AI, PRIORITY_PLAYER } from '../nav/pathQueue';
 import type { World } from '../world';
 import { radiusClass } from '../nav/navmesh';
 import { detachField } from './fieldFollow';
@@ -67,7 +68,7 @@ export const OrderKind = { Move: 1, Patrol: 2 } as const;
 export type OrderKind = (typeof OrderKind)[keyof typeof OrderKind];
 
 /** Queue capacity per unit (SC2 allows 32; 8 is plenty for the demo). */
-export const QUEUE_CAP = 8;
+export const QUEUE_CAP = 16;
 
 /** Fixed-capacity per-unit ring buffers of order entries. */
 export class OrderQueues {
@@ -136,7 +137,6 @@ function clearQueue(world: World, i: number): void {
 
 function resetMotion(world: World, i: number): void {
   const u = world.units;
-  u.flags[i] &= ~UNIT_FLAG_DRIFT;
   u.stuckStage[i] = 0;
   u.stuckTick[i] = world.tick;
   u.stuckX[i] = u.posX[i];
@@ -173,7 +173,7 @@ function startFront(world: World, i: number): void {
     world.paths.pending[i] = 1;
     return;
   }
-  world.pathQueue.request(u.handleOf(i), q.x[e], q.y[e]);
+  world.pathQueue.request(u.handleOf(i), q.x[e], q.y[e], u.flags[i] & UNIT_FLAG_PLAYER ? PRIORITY_PLAYER : PRIORITY_AI);
 }
 
 /** Where unit i will be when its current queue is done (the base for queued formations). */
@@ -228,11 +228,15 @@ export function magicBox(world: World, slots: readonly number[], bases: readonly
 }
 
 /** Move (or patrol, with `patrol`) command for a set of units; `queue` = Shift. */
-export function issueMove(world: World, handles: Int32Array, x: number, y: number, queue: boolean, patrol = false): void {
+export function issueMove(world: World, handles: Int32Array, x: number, y: number, queue: boolean, patrol = false, ai = false): void {
   const u = world.units, q = world.queues;
   const slots: number[] = [];
   for (const h of handles) if (u.isValid(h)) slots.push(handleIndex(h));
   if (slots.length === 0) return;
+  for (const i of slots) {
+    if (ai) u.flags[i] &= ~UNIT_FLAG_PLAYER;
+    else u.flags[i] |= UNIT_FLAG_PLAYER;
+  }
   const bases: number[] = [];
   let r2 = 0;
   for (const i of slots) {
@@ -273,6 +277,7 @@ export function issueStop(world: World, handles: Int32Array, hold: boolean): voi
   for (const h of handles) {
     if (!u.isValid(h)) continue;
     const i = handleIndex(h);
+    u.flags[i] |= UNIT_FLAG_PLAYER;
     clearQueue(world, i);
     resetMotion(world, i);
     detachField(world, i);

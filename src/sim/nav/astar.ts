@@ -102,8 +102,17 @@ export class PathSearch {
   private gen = 0;
   private readonly heap = new Heap();
   lastExpansions = 0;
+  /** LRU cache of corridors (entry-halfedge chains) for repeated legs (patrols, convoys). */
+  private readonly cache = new Map<string, { chain: number[]; version: number }>();
+  cacheHits = 0;
+  cacheMisses = 0;
+  static readonly CACHE_SIZE = 2048;
 
   constructor(private readonly nav: NavMesh) {}
+
+  private cacheKey(ts: number, tg: number, r: number): string {
+    return `${ts},${tg},${Math.round(r * 16)}`;
+  }
 
   private ensure(n: number): void {
     if (this.g.length >= n) return;
@@ -128,6 +137,22 @@ export class PathSearch {
     if (ts === NONE || cdt.tBlock[ts] > 0) return null;
     const tg = cdt.locate(gx, gy);
     if (ts === tg) return this.straight(q, ts);
+
+    // Repeated leg on an unchanged mesh: re-funnel the cached corridor with the actual endpoints.
+    const key = this.cacheKey(ts, tg, r);
+    const hit = this.cache.get(key);
+    if (hit && hit.version === this.nav.version) {
+      const res = this.repair(funnel(buildCorridor(cdt, hit.chain), sx, sy, gx, gy, r, this.guardVertices(hit.chain)), r);
+      if (this.isClear(res, r)) {
+        this.cache.delete(key);
+        this.cache.set(key, hit); // refresh LRU position
+        this.cacheHits++;
+        this.lastExpansions = 0;
+        const tris = Int32Array.from([ts, ...hit.chain.map((n) => (n / 3) | 0)]);
+        return { ...res, complete: true, clear: true, expansions: 0, corridor: tris };
+      }
+    }
+    this.cacheMisses++;
 
     this.ensure(cdt.tCount * 3);
     const gen = ++this.gen;
@@ -217,6 +242,8 @@ export class PathSearch {
     this.lastExpansions = expansions;
 
     if (bestResult && bestNode !== NONE) {
+      this.cache.set(key, { chain: this.nodeChain(bestNode), version: this.nav.version });
+      if (this.cache.size > PathSearch.CACHE_SIZE) this.cache.delete(this.cache.keys().next().value!);
       return { ...bestResult, complete: true, clear: true, expansions, corridor: this.corridorTris(bestNode, ts) };
     }
     if (fallback && fallbackNode !== NONE) {

@@ -11,8 +11,8 @@ export const MoveState = {
 } as const;
 export type MoveState = (typeof MoveState)[keyof typeof MoveState];
 
-/** Ambient placeholder motion (M0 drift); cleared when the unit gets an order. */
-export const UNIT_FLAG_DRIFT = 1;
+/** The unit's current orders came from the player (ambient AI stays out of the way). */
+export const UNIT_FLAG_PLAYER = 2;
 
 /**
  * Structure-of-arrays unit storage with fixed capacity, generation-checked handles,
@@ -61,8 +61,6 @@ export class UnitStore {
   readonly squeezeUntil: Int32Array;
   /** Tick the unit arrived (Arrived → Idle after a short settle time). */
   readonly arrivedTick: Int32Array;
-  /** Wander heading for ambient drifting units. */
-  readonly wander: Float32Array;
   /** Destination field the unit follows (0 = none / individual path). */
   readonly fieldId: Int32Array;
   /** Last known navmesh triangle (point-location hint). */
@@ -111,7 +109,6 @@ export class UnitStore {
     this.stuckStage = new Uint8Array(capacity);
     this.squeezeUntil = new Int32Array(capacity);
     this.arrivedTick = new Int32Array(capacity);
-    this.wander = new Float32Array(capacity);
     this.fieldId = new Int32Array(capacity);
     this.navTri = new Int32Array(capacity).fill(-1);
     this.gen = new Uint16Array(capacity);
@@ -158,7 +155,6 @@ export class UnitStore {
     this.stuckStage[i] = 0;
     this.squeezeUntil[i] = 0;
     this.arrivedTick[i] = 0;
-    this.wander[i] = heading;
     this.fieldId[i] = 0;
     this.navTri[i] = -1;
 

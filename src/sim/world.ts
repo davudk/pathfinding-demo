@@ -10,6 +10,7 @@ import { PathQueue, PathStore } from './nav/pathQueue';
 import { FieldRegistry } from './nav/field';
 import { OrderQueues, Orders } from './move/orders';
 import { Locomotion } from './move/locomotion';
+import { Brains } from './ai/brains';
 import { UnitGrid } from './spatial/grid';
 import { WallGrid } from './spatial/wallGrid';
 import { UnitStore } from './store/units';
@@ -31,6 +32,7 @@ export interface World {
   readonly grid: UnitGrid;
   readonly walls: WallGrid;
   readonly locomotion: Locomotion;
+  readonly brains: Brains;
   /** Scenario commands waiting for their tick. */
   script: ScriptedCommand[];
   /** Messages for the main thread, flushed by the runner after each tick. */
@@ -64,6 +66,7 @@ export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World
     grid: new UnitGrid(map.width, map.height, 2, capacity),
     walls: new WallGrid(map.width, map.height),
     locomotion: new Locomotion(capacity),
+    brains: new Brains(capacity),
     script: [],
     events: [],
     prof: new Profiler(SIM_SYSTEM_NAMES, 120),
