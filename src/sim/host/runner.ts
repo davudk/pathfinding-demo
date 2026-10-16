@@ -1,6 +1,6 @@
 import { SIM_DT_MS } from '../../shared/constants';
 import { SimSys } from '../../shared/profiler';
-import type { SceneConfig, SimCommand, SnapshotViews } from '../../shared/protocol';
+import type { FromSim, NavDebugData, SceneConfig, SimCommand, SnapshotViews } from '../../shared/protocol';
 import { createWorld, type World } from '../world';
 import { step } from '../step';
 import { writeSnapshot, writeTimings } from '../snapshot';
@@ -29,9 +29,17 @@ export class SimRunner {
   private last = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(scene: SceneConfig, sink: SnapshotSink) {
+  constructor(scene: SceneConfig, sink: SnapshotSink, private readonly emit: (msg: FromSim, transfer?: Transferable[]) => void) {
     this.world = createWorld(scene);
     this.sink = sink;
+  }
+
+  /** Navmesh geometry for the debug overlay (radius class `cls`). */
+  navDebug(cls: number): void {
+    const nav = this.world.nav;
+    const d = nav.exportDebug(cls);
+    const data: NavDebugData = { version: nav.version, cls, ...d, stats: { ...nav.stats, regions: nav.stats.regions.slice() } };
+    this.emit({ type: 'navDebug', data }, [d.edges.buffer, d.tris.buffer, d.region.buffer]);
   }
 
   start(): void {
@@ -80,6 +88,11 @@ export class SimRunner {
     this.pending = [];
     step(this.world, cmds);
     this.publish();
+    const ev = this.world.events;
+    if (ev.length) {
+      for (const m of ev) this.emit(m);
+      ev.length = 0;
+    }
   }
 
   private publish(): void {

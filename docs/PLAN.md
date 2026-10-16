@@ -296,3 +296,26 @@ Execution plan:
 2. **Target hardware for the 10k / 60 fps budget.** I'm assuming an Apple Silicon Mac.
 3. **Git.** The folder isn't a repo yet. Shall I run `git init` and commit at each milestone?
 4. **Visual style.** I plan clean, flat SC2-ish vector visuals (SDF circles, beveled rock polygons, dark ground). Sprites aren't planned.
+
+---
+
+## 9. Implementation notes (decisions made while building)
+
+**M1 — map**
+- Zones sit on a 170-unit integer pitch; the last row and column take up the remainder. Every building coordinate therefore lands on the 0.5 lattice.
+- Normalization applies morphological closing at the smallest unit radius (0.25), so no walkable gap is narrower than 0.5. Every walkable pocket not connected to the main region is filled in.
+- Buildings keep a 1-unit margin from the map edge, so building corners are never hull vertices.
+
+**M2 — navmesh**
+- **No interior Steiner points.** Every vertex is an obstacle corner or a map-border point (every 16 units). This is the assumption behind Demyen's width computation.
+- **Vertex removal** re-triangulates the deleted vertex's star by ear clipping, then legalizes. Flip-to-degree-3 is not robust when neighbors are collinear, which lattice rectangles produce constantly.
+- **Bootstrap.** Delaunator triangulates all points, then *our own* `insertConstraint` adds every obstacle edge, so the runtime code path is exercised at startup. Constrainautor is not used. Correctness is checked by invariant fuzzing instead:
+  - structure, orientation and twin symmetry;
+  - constrained-Delaunay property;
+  - blocked flags against point-in-polygon;
+  - area sum.
+
+  CDT edge sets aren't unique under the heavy cocircularity of lattice rectangles, so an edge-set oracle comparison wouldn't be meaningful.
+- **Blocked flags** are per-triangle obstacle *coverage counts*. They are flood-filled per obstacle from the interior side of its first edge and inherited through splits and flips. Unconstrained edges always separate triangles with equal counts.
+- **Regions** use a necessary condition: a crossed edge must be ≥ 2r long, because both of its endpoints are obstacle points. They are recomputed globally after an edit: about 1.5 ms in Node and 3–4 ms in the worker. *Follow-up (M7):* make regions incremental, or defer them until the first query after an edit.
+- **Edit cost:** CDT plus width update is about 0.05 ms per building. The rest is region recomputation, plus a full occupancy-raster rebuild done on the sim thread.

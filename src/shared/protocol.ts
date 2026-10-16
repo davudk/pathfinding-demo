@@ -21,6 +21,8 @@ export const H_MAP_W = 3;
 export const H_MAP_H = 4;
 /** Float64 index (words 8–9): absolute publish time, performance.timeOrigin + now(), ms. */
 export const H_TIME_F64 = 4;
+/** Navmesh version (bumped on every obstacle edit). */
+export const H_NAV_VERSION = 5;
 /** Float32 per-system timings (ms) of the tick that produced the snapshot. */
 export const H_SYS_BASE = 16;
 export const H_SYS_MAX = 32;
@@ -111,7 +113,22 @@ export interface MapRenderData {
 // ── Commands (applied by the sim at the start of the next tick) ───────────────
 export type SimCommand =
   | { readonly kind: 'spawnRandom'; readonly count: number }
-  | { readonly kind: 'despawn'; readonly handles: Int32Array };
+  | { readonly kind: 'despawn'; readonly handles: Int32Array }
+  | { readonly kind: 'placeBuilding'; readonly x: number; readonly y: number; readonly w: number; readonly h: number; readonly faction: number; readonly type: string }
+  | { readonly kind: 'removeBuildingAt'; readonly x: number; readonly y: number };
+
+/** Navmesh debug geometry for overlays. */
+export interface NavDebugData {
+  readonly version: number;
+  readonly cls: number;
+  /** (x0, y0, x1, y1, kind) per edge; kind 0 = free, 1 = inside obstacles, 2 = constrained/hull. */
+  readonly edges: Float32Array;
+  /** (x0, y0, x1, y1, x2, y2) per triangle. */
+  readonly tris: Float32Array;
+  /** Region id per triangle for `cls` (-1 = blocked). */
+  readonly region: Int32Array;
+  readonly stats: { readonly vertices: number; readonly triangles: number; readonly regions: readonly number[]; readonly buildMs: number; readonly lastUpdateMs: number };
+}
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 export type Transport = 'sab' | 'transfer';
@@ -120,11 +137,15 @@ export type ToSim =
   | { readonly type: 'init'; readonly scene: SceneConfig; readonly transport: Transport; readonly sab?: SharedArrayBuffer }
   | { readonly type: 'command'; readonly cmd: SimCommand }
   | { readonly type: 'control'; readonly paused?: boolean; readonly timeScale?: number; readonly step?: boolean }
-  | { readonly type: 'returnBuffer'; readonly buffer: ArrayBuffer };
+  | { readonly type: 'returnBuffer'; readonly buffer: ArrayBuffer }
+  | { readonly type: 'debugNavmesh'; readonly cls: number };
 
 export type FromSim =
   | { readonly type: 'ready'; readonly mapW: number; readonly mapH: number; readonly map: MapRenderData }
   | { readonly type: 'snapshot'; readonly tick: number; readonly buffer: ArrayBuffer }
+  | { readonly type: 'buildings'; readonly buildings: readonly BuildingDef[] }
+  | { readonly type: 'notice'; readonly text: string }
+  | { readonly type: 'navDebug'; readonly data: NavDebugData }
   | { readonly type: 'error'; readonly message: string };
 
 /** Minimal port shape shared by DedicatedWorkerGlobalScope and Worker. */

@@ -89,40 +89,64 @@ export interface BuildingCheck {
 
 /**
  * Placement validation (the navmesh's no-crossing contract): a building must lie inside the
- * map and must not overlap terrain or another building. Touching along edges is allowed.
+ * map (with a 1-unit margin) and must not overlap terrain or another building. Touching
+ * along edges is allowed.
  */
-export function validateBuildings(terrain: readonly Polygon[], buildings: readonly BuildingDef[], W: number, H: number): BuildingCheck {
-  const terrainBounds = terrain.map((p) => ringBounds(p.rings[0]));
-  const terrainPaths = terrain.map((p) => polygonsToPaths([p]));
-  const accepted: BuildingDef[] = [];
-  const acceptedRings: { b: Bounds; path: Paths64 }[] = [];
-  const rejected: { id: string; reason: string }[] = [];
-  const overlaps = (a: Bounds, b: Bounds): boolean => a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+export class PlacementChecker {
+  private readonly terrainBounds: Bounds[];
+  private readonly terrainPaths: Paths64[];
+  private readonly placed = new Map<string, { b: Bounds; path: Paths64 }>();
 
-  outer: for (const b of buildings) {
-    const ring = buildingRing(b);
+  constructor(terrain: readonly Polygon[], private readonly W: number, private readonly H: number) {
+    this.terrainBounds = terrain.map((p) => ringBounds(p.rings[0]));
+    this.terrainPaths = terrain.map((p) => polygonsToPaths([p]));
+  }
+
+  /** Returns a reason the footprint can't be placed, or null if it can. */
+  check(ring: Float64Array): string | null {
     const bb = ringBounds(ring);
-    if (bb.minX < 0 || bb.minY < 0 || bb.maxX > W || bb.maxY > H) {
-      rejected.push({ id: b.id, reason: 'outside map' });
+    if (bb.minX < 1 || bb.minY < 1 || bb.maxX > this.W - 1 || bb.maxY > this.H - 1) return 'outside map';
+    const path = [ringToPath(ring)];
+    for (let i = 0; i < this.terrainPaths.length; i++) {
+      if (overlaps(bb, this.terrainBounds[i]) && hasArea(intersectPaths(path, this.terrainPaths[i]))) return 'overlaps terrain';
+    }
+    for (const o of this.placed.values()) {
+      if (overlaps(bb, o.b) && hasArea(intersectPaths(path, o.path))) return 'overlaps building';
+    }
+    return null;
+  }
+
+  add(id: string, ring: Float64Array): void {
+    this.placed.set(id, { b: ringBounds(ring), path: [ringToPath(ring)] });
+  }
+
+  remove(id: string): void {
+    this.placed.delete(id);
+  }
+}
+
+function overlaps(a: Bounds, b: Bounds): boolean {
+  return a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+}
+
+function hasArea(paths: Paths64): boolean {
+  return paths.some((p) => Math.abs(pathAreaWorld(p)) > 1e-9);
+}
+
+/** Validates a list of buildings in order; later ones must not overlap earlier accepted ones. */
+export function validateBuildings(terrain: readonly Polygon[], buildings: readonly BuildingDef[], W: number, H: number): BuildingCheck {
+  const checker = new PlacementChecker(terrain, W, H);
+  const accepted: BuildingDef[] = [];
+  const rejected: { id: string; reason: string }[] = [];
+  for (const b of buildings) {
+    const ring = buildingRing(b);
+    const reason = checker.check(ring);
+    if (reason) {
+      rejected.push({ id: b.id, reason });
       continue;
     }
-    const path = [ringToPath(ring)];
-    for (let i = 0; i < terrain.length; i++) {
-      if (!overlaps(bb, terrainBounds[i])) continue;
-      if (intersectPaths(path, terrainPaths[i]).some((p) => Math.abs(pathAreaWorld(p)) > 1e-9)) {
-        rejected.push({ id: b.id, reason: 'overlaps terrain' });
-        continue outer;
-      }
-    }
-    for (const o of acceptedRings) {
-      if (!overlaps(bb, o.b)) continue;
-      if (intersectPaths(path, o.path).some((p) => Math.abs(pathAreaWorld(p)) > 1e-9)) {
-        rejected.push({ id: b.id, reason: 'overlaps building' });
-        continue outer;
-      }
-    }
+    checker.add(b.id, ring);
     accepted.push(b);
-    acceptedRings.push({ b: bb, path });
   }
   return { accepted, rejected };
 }

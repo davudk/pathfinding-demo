@@ -6,6 +6,7 @@ import { BuildingsPass } from './passes/buildings';
 import { GroundPass } from './passes/ground';
 import { TerrainPass } from './passes/terrain';
 import { LinePass, type LineBatch } from './passes/lines';
+import type { TriBatch } from './passes/tris';
 import { UnitsPass } from './passes/units';
 
 const MAX_DPR = 2;
@@ -20,6 +21,8 @@ export interface FrameInput {
   /** Line batches drawn under units (terrain outlines, debug) and over units (UI). */
   readonly under: readonly LineBatch[];
   readonly over: readonly LineBatch[];
+  /** Optional debug fill drawn above terrain, below lines and units. */
+  readonly overlayTris?: TriBatch | null;
 }
 
 export class Renderer {
@@ -108,6 +111,7 @@ export class Renderer {
     this.buildings.drawShadows(this.view, pxPerUnit);
     this.terrain.draw(this.view, pxPerUnit);
     this.buildings.draw(this.view, pxPerUnit);
+    f.overlayTris?.draw(this.view);
     for (const b of f.under) b.draw(this.view, pxPerUnit);
     this.units.draw(this.view, f.a, f.b, f.alpha, pxPerUnit);
     for (const b of f.over) b.draw(this.view, pxPerUnit);

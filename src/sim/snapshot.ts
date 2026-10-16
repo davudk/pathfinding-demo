@@ -1,5 +1,5 @@
 import {
-  H_ALIVE, H_HIGH_WATER, H_MAP_H, H_MAP_W, H_SYS_BASE, H_SYS_MAX, H_TICK, H_TIME_F64,
+  H_ALIVE, H_HIGH_WATER, H_MAP_H, H_MAP_W, H_NAV_VERSION, H_SYS_BASE, H_SYS_MAX, H_TICK, H_TIME_F64,
   I_ATTRS, I_HANDLE, I_HEADING, I_RADIUS, I_X, I_Y, INST_WORDS, SNAP_HEADER_WORDS,
   packAttrs, type SnapshotViews,
 } from '../shared/protocol';
@@ -16,6 +16,7 @@ export function writeSnapshot(world: World, out: SnapshotViews): void {
   i32[H_ALIVE] = u.count;
   i32[H_MAP_W] = world.mapW;
   i32[H_MAP_H] = world.mapH;
+  i32[H_NAV_VERSION] = world.nav.version;
 
   let o = SNAP_HEADER_WORDS;
   for (let i = 0; i < hw; i++, o += INST_WORDS) {

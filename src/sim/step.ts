@@ -2,6 +2,7 @@ import { SimSys } from '../shared/profiler';
 import type { SimCommand } from '../shared/protocol';
 import { spawnRandomUnits } from './scenarios/stress';
 import { driftUnits } from './move/drift';
+import { placeBuilding, removeBuildingAt } from './edit';
 import type { World } from './world';
 
 function applyCommand(world: World, cmd: SimCommand): void {
@@ -11,6 +12,12 @@ function applyCommand(world: World, cmd: SimCommand): void {
       break;
     case 'despawn':
       for (const h of cmd.handles) world.units.despawn(h);
+      break;
+    case 'placeBuilding':
+      placeBuilding(world, cmd.x, cmd.y, cmd.w, cmd.h, cmd.faction, cmd.type);
+      break;
+    case 'removeBuildingAt':
+      removeBuildingAt(world, cmd.x, cmd.y);
       break;
   }
 }

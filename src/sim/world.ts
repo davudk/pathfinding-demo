@@ -3,7 +3,8 @@ import { generateMap } from './map/generate';
 import { loadWorldMap, type WorldMap } from './map/worldMap';
 import { Rng } from '../shared/rng';
 import { Profiler, SIM_SYSTEM_NAMES } from '../shared/profiler';
-import type { SceneConfig } from '../shared/protocol';
+import type { FromSim, SceneConfig } from '../shared/protocol';
+import { NavMesh } from './nav/navmesh';
 import { UnitStore } from './store/units';
 import { spawnRandomUnits } from './scenarios/stress';
 
@@ -14,6 +15,9 @@ export interface World {
   readonly rng: Rng;
   readonly units: UnitStore;
   readonly map: WorldMap;
+  readonly nav: NavMesh;
+  /** Messages for the main thread, flushed by the runner after each tick. */
+  readonly events: FromSim[];
   readonly prof: Profiler;
 }
 
@@ -27,6 +31,8 @@ export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World
     rng: new Rng(scene.seed),
     units: new UnitStore(capacity),
     map,
+    nav: NavMesh.build(map.width, map.height, map.terrain, map.buildingRings),
+    events: [],
     prof: new Profiler(SIM_SYSTEM_NAMES, 120),
   };
   spawnRandomUnits(world, scene.units);

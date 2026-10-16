@@ -1,4 +1,6 @@
-import { H_ALIVE, H_SYS_BASE, H_TIME_F64, type SceneConfig } from '../shared/protocol';
+import { H_ALIVE, H_NAV_VERSION, H_SYS_BASE, H_TIME_F64, type FromSim, type SceneConfig } from '../shared/protocol';
+import { Faction } from '../shared/factions';
+import { NavOverlay } from './navOverlay';
 import { Profiler, SIM_SYSTEM_NAMES, SimSys, percentile } from '../shared/profiler';
 import { SIM_HZ } from '../shared/constants';
 import { Renderer } from '../render/renderer';
@@ -20,6 +22,7 @@ export interface AppElements {
   readonly graph: HTMLCanvasElement;
   readonly selBox: HTMLElement;
   readonly help: HTMLElement;
+  readonly toast: HTMLElement;
 }
 
 export function sceneFromUrl(params: URLSearchParams): SceneConfig {
@@ -61,6 +64,11 @@ export class App {
   private paused = false;
   private timeScale = 1;
   private mapInfo = '';
+  private readonly nav: NavOverlay;
+  private pointerX = -1;
+  private pointerY = -1;
+  private buildSize = 1;
+  private toastTimer = 0;
 
   constructor(private readonly el: AppElements, scene: SceneConfig, hostOpts: { main: boolean; forceTransfer: boolean }) {
     this.renderer = new Renderer(el.canvas);
@@ -70,7 +78,35 @@ export class App {
     const cam = this.renderer.camera;
     this.camCtl = new CameraController(el.canvas, cam, () => ({ w: this.mapW, h: this.mapH }));
     this.selCtl = new SelectionController(el.canvas, cam, this.selection, el.selBox, () => this.bracket.b?.views ?? null);
+    this.nav = new NavOverlay(this.renderer.gl, this.renderer.lines, (cls) => this.host.requestNavDebug(cls));
+    this.host.onEvent = this.onSimEvent;
+    el.canvas.addEventListener('pointermove', (e) => {
+      this.pointerX = e.offsetX;
+      this.pointerY = e.offsetY;
+    });
     window.addEventListener('keydown', this.onKey);
+  }
+
+  private readonly onSimEvent = (msg: FromSim): void => {
+    switch (msg.type) {
+      case 'buildings':
+        this.renderer.buildings.setBuildings(msg.buildings);
+        break;
+      case 'notice':
+        this.showToast(msg.text);
+        break;
+      case 'navDebug':
+        this.nav.receive(msg.data);
+        break;
+    }
+  };
+
+  private showToast(text: string): void {
+    const t = this.el.toast;
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => t.classList.remove('show'), 1800);
   }
 
   async start(): Promise<void> {
@@ -128,7 +164,12 @@ export class App {
         this.selCtl.update();
         const n = this.selection.syncFlags();
         if (n >= 0) this.renderer.units.uploadSelection(this.selection.flags, n);
-        this.renderer.render({ a, b, alpha, mapW: this.mapW, mapH: this.mapH, under: this.underLines, over: this.overLines });
+        this.nav.update(b.views.i32[H_NAV_VERSION]);
+        const under = this.nav.enabled ? [...this.underLines, this.nav.edges] : this.underLines;
+        this.renderer.render({
+          a, b, alpha, mapW: this.mapW, mapH: this.mapH, under, over: this.overLines,
+          overlayTris: this.nav.enabled ? this.nav.fill : null,
+        });
       }
     }
 
@@ -167,6 +208,7 @@ export class App {
     h.set('sel', 'Selected', `${this.selection.handles.size}`);
     h.set('mode', 'Sim host', this.host.mode);
     h.set('map', 'Map', this.mapInfo);
+    h.set('nav', 'Navmesh', this.nav.enabled ? this.nav.info : 'F2 to show');
     const sn = Math.min(this.simTotalsN, 240);
     this.graph.draw(this.scratchA, n, this.simTotals.subarray(this.simTotals.length - sn), sn);
   }
@@ -211,6 +253,33 @@ export class App {
         e.preventDefault();
         this.el.help.classList.toggle('hidden');
         break;
+      case 'F2':
+        e.preventDefault();
+        this.nav.toggle();
+        break;
+      case 'F3':
+        e.preventDefault();
+        this.nav.cycleClass();
+        break;
+      case 'KeyB': {
+        if (this.pointerX < 0) break;
+        const sizes: [number, number][] = [[2, 2], [3, 3], [4, 3], [5, 5], [6, 6], [8, 2]];
+        if (e.shiftKey) {
+          this.buildSize = (this.buildSize + 1) % sizes.length;
+          this.showToast(`Building size ${sizes[this.buildSize][0]}×${sizes[this.buildSize][1]}`);
+          break;
+        }
+        const cam = this.renderer.camera;
+        const [w, h] = sizes[this.buildSize];
+        this.host.command({ kind: 'placeBuilding', x: cam.screenToWorldX(this.pointerX), y: cam.screenToWorldY(this.pointerY), w, h, faction: Faction.Player, type: 'barracks' });
+        break;
+      }
+      case 'KeyX': {
+        if (this.pointerX < 0) break;
+        const cam = this.renderer.camera;
+        this.host.command({ kind: 'removeBuildingAt', x: cam.screenToWorldX(this.pointerX), y: cam.screenToWorldY(this.pointerY) });
+        break;
+      }
     }
   };
 }

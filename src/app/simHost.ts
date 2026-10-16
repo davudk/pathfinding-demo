@@ -21,6 +21,10 @@ export interface SimHost {
   readonly ready: Promise<SimReady>;
   command(cmd: SimCommand): void;
   control(c: { paused?: boolean; timeScale?: number; step?: boolean }): void;
+  /** Requests navmesh debug geometry; arrives as a 'navDebug' event. */
+  requestNavDebug(cls: number): void;
+  /** Receives sim events (buildings changed, notices, debug data). */
+  onEvent: (msg: FromSim) => void;
   /** Pulls new snapshots (shared-memory mode); no-op otherwise. Call once per frame. */
   poll(): void;
 }
@@ -85,6 +89,11 @@ function createWorkerHost(scene: SceneConfig, useSab: boolean): SimHost {
         case 'snapshot':
           ring.push(msg.buffer);
           break;
+        case 'buildings':
+        case 'notice':
+        case 'navDebug':
+          host.onEvent(msg);
+          break;
         case 'error':
           console.error('[sim worker]', msg.message);
           reject(new Error(msg.message));
@@ -97,14 +106,17 @@ function createWorkerHost(scene: SceneConfig, useSab: boolean): SimHost {
     };
   });
 
-  return {
+  const host: SimHost = {
     mode: useSab ? 'worker-sab' : 'worker-transfer',
     ring,
     ready,
     command: (cmd) => post({ type: 'command', cmd }),
     control: (c) => post({ type: 'control', ...c }),
+    requestNavDebug: (cls) => post({ type: 'debugNavmesh', cls }),
+    onEvent: () => {},
     poll: () => poll(),
   };
+  return host;
 }
 
 function createMainThreadHost(scene: SceneConfig): SimHost {
@@ -114,14 +126,17 @@ function createMainThreadHost(scene: SceneConfig): SimHost {
     acquire: (): SnapshotViews => snapshotViews(pool.pop() ?? new ArrayBuffer(snapshotByteLength())),
     commit: (_tick, views) => ring.push(views.buffer as ArrayBuffer),
   };
-  const runner = new SimRunner(scene, sink);
+  const runner: SimRunner = new SimRunner(scene, sink, (msg) => queueMicrotask(() => host.onEvent(msg)));
   runner.start();
-  return {
+  const host: SimHost = {
     mode: 'main',
     ring,
     ready: Promise.resolve({ mapW: runner.world.mapW, mapH: runner.world.mapH, map: mapRenderData(runner.world.map) }),
     command: (cmd) => runner.enqueue(cmd),
     control: (c) => runner.control(c.paused, c.timeScale, c.step),
+    requestNavDebug: (cls) => runner.navDebug(cls),
+    onEvent: () => {},
     poll: () => {},
   };
+  return host;
 }

@@ -22,7 +22,7 @@ port.onmessage = (ev) => {
           });
           sink = transferSink;
         }
-        runner = new SimRunner(msg.scene, sink);
+        runner = new SimRunner(msg.scene, sink, (m, transfer) => port.postMessage(m, transfer ?? []));
         port.postMessage({ type: 'ready', mapW: runner.world.mapW, mapH: runner.world.mapH, map: mapRenderData(runner.world.map) });
         runner.start();
         break;
@@ -35,6 +35,9 @@ port.onmessage = (ev) => {
         break;
       case 'returnBuffer':
         transferSink?.giveBack(msg.buffer);
+        break;
+      case 'debugNavmesh':
+        runner?.navDebug(msg.cls);
         break;
     }
   } catch (err) {
