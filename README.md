@@ -11,6 +11,8 @@ A StarCraft II–style pathfinding and unit-movement demo in the browser. **10,0
 
 Measured in a production build on Apple Silicon with 10,000 units: the simulation takes p50 8.6 ms and p95 11.0 ms per 30 Hz tick in its worker, while rendering holds 120 fps (frame p99 9.3 ms).
 
+**Live demo: https://rts-pathfinding-demo.web.app**
+
 See [docs/PLAN.md](docs/PLAN.md) for the architecture, the per-milestone implementation notes and the measurements, and [docs/research/](docs/research/) for the background research.
 
 ## Run
@@ -88,6 +90,7 @@ Then open `http://localhost:4173/?bench=30`.
 | `npm test` | Unit, fuzz, scenario, determinism and module-boundary tests |
 | `npm run bench` | Micro-benchmarks. Numbers are relative only, because Vite's Node transform slows module-constant access. |
 | `npm run build` | Type-check, then production build |
+| `firebase deploy --only hosting` | Deploy `dist/` to Firebase Hosting (sends the COOP/COEP headers too) |
 
 ## Layout
 
