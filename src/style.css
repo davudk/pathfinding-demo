@@ -22,13 +22,17 @@ body {
   font: 12px/1.45 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  /* No page pinch-zoom or rubber-banding; the scrollable panels opt back in to vertical panning. */
+  touch-action: none;
 }
 
 #view {
   position: fixed;
   inset: 0;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   display: block;
   cursor: default;
   touch-action: none;
@@ -88,12 +92,21 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   min-width: 360px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100% - 40px);
+  overflow-y: auto;
+  touch-action: pan-y;
+  z-index: 40;
 }
 
 #help h2 {
   margin: 0 0 10px;
   font-size: 13px;
   font-weight: 600;
+}
+
+#help dl + h2 {
+  margin-top: 14px;
 }
 
 #help dl {
@@ -164,6 +177,8 @@ body {
 
 #group-bar {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 4px;
 }
 
@@ -172,9 +187,26 @@ body {
   gap: 4px;
   align-items: baseline;
   padding: 2px 7px;
+  font: inherit;
+  color: var(--text);
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.cg:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.cg-new {
+  color: var(--text-dim);
+}
+
+body:not(.has-selection) .cg-new {
+  display: none;
 }
 
 .cg-key {
@@ -218,7 +250,11 @@ body {
   position: fixed;
   top: 10px;
   right: 10px;
+  z-index: 20;
   width: 176px;
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+  touch-action: pan-y;
   padding: 8px;
   background: var(--panel);
   border: 1px solid var(--panel-border);
@@ -242,7 +278,9 @@ body {
   gap: 5px;
 }
 
-#editor button {
+#editor button,
+#topbar button,
+#cmdbar button {
   font: inherit;
   font-size: 11px;
   color: var(--text);
@@ -255,11 +293,14 @@ body {
   white-space: nowrap;
 }
 
-#editor button:hover:not(:disabled) {
+#editor button:hover:not(:disabled),
+#topbar button:hover,
+#cmdbar button:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
-#editor button.on {
+#editor button.on,
+#cmdbar button.on {
   border-color: var(--select);
   color: var(--select);
   background: rgba(74, 222, 128, 0.1);
@@ -302,6 +343,8 @@ body .lil-gui.tuning.autoPlace {
   position: fixed;
   top: 10px;
   right: 198px;
+  z-index: 30;
+  touch-action: pan-y;
   max-height: calc(100vh - 20px);
   overflow-y: auto;
   --background-color: rgba(10, 12, 16, 0.92);
@@ -334,4 +377,234 @@ body .lil-gui.tuning.autoPlace {
 
 .hidden {
   display: none !important;
+}
+
+/* ---- Touch: extra controls for what keyboards and right clicks do on desktop ---- */
+
+body:not(.touch) .touch-only {
+  display: none !important;
+}
+
+body.touch #hint {
+  display: none;
+}
+
+.ed-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+#cmdbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.cmd-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+}
+
+#cmdbar button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-align: center;
+  touch-action: manipulation;
+}
+
+#cmd-editor-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 0 4px;
+  flex-basis: 100%;
+  text-align: center;
+}
+
+body.touch #editor button {
+  min-height: 34px;
+  touch-action: manipulation;
+}
+
+body.touch .cg {
+  min-height: 34px;
+  align-items: center;
+  padding: 4px 10px;
+}
+
+#topbar {
+  display: none;
+}
+
+/* ---- Small screens (phones, portrait or landscape) ---- */
+
+@media (max-width: 760px), (max-height: 500px) {
+  #hud {
+    top: calc(8px + env(safe-area-inset-top));
+    left: calc(8px + env(safe-area-inset-left));
+    width: min(300px, calc(100vw - 120px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .hud-label {
+    min-width: 62px;
+  }
+
+  #hud-graph {
+    max-width: 100%;
+  }
+
+  #hud.compact .hud-row:not([data-key='fps'], [data-key='sim'], [data-key='units'], [data-key='sel']),
+  #hud.compact #hud-graph {
+    display: none;
+  }
+
+  #topbar {
+    position: fixed;
+    top: calc(8px + env(safe-area-inset-top));
+    right: calc(8px + env(safe-area-inset-right));
+    z-index: 25;
+    display: flex;
+    gap: 6px;
+  }
+
+  #topbar button {
+    min-width: 44px;
+    height: 44px;
+    font-size: 13px;
+    text-align: center;
+    background: var(--panel);
+    backdrop-filter: blur(4px);
+    touch-action: manipulation;
+  }
+
+  #menu-btn {
+    font-size: 18px !important;
+  }
+
+  body.menu-open #menu-btn {
+    border-color: var(--select);
+    color: var(--select);
+  }
+
+  /* The scenario / editor panel becomes a slide-in drawer. */
+  #editor {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(280px, 86vw);
+    max-height: none;
+    padding: calc(62px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) 12px;
+    border-radius: 0;
+    border-width: 0 0 0 1px;
+    background: rgba(10, 12, 16, 0.94);
+    gap: 7px;
+    transform: translateX(105%);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+
+  body.menu-open #editor {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.2s ease;
+  }
+
+  #editor button,
+  #scene-pick {
+    font-size: 13px;
+    padding: 8px;
+  }
+
+  #scene-about,
+  #ed-hint {
+    font-size: 12px;
+  }
+
+  #minimap {
+    left: calc(8px + env(safe-area-inset-left));
+    bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+
+  /* Selection, groups and commands sit beside the minimap, right-aligned. */
+  #bottom {
+    left: calc(var(--minimap-w, 120px) + 16px + env(safe-area-inset-left));
+    right: calc(8px + env(safe-area-inset-right));
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    transform: none;
+    max-width: none;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  #group-bar {
+    justify-content: flex-end;
+  }
+
+  #sel-summary {
+    justify-content: flex-end;
+    gap: 4px 10px;
+    padding: 5px 8px;
+    font-size: 11px;
+    max-height: 72px;
+    overflow: hidden;
+  }
+
+  #cmdbar {
+    align-items: flex-end;
+  }
+
+  .cmd-row {
+    justify-content: flex-end;
+  }
+
+  #toast {
+    bottom: auto;
+    top: calc(62px + env(safe-area-inset-top));
+    max-width: calc(100vw - 24px);
+    text-align: center;
+  }
+
+  #help {
+    min-width: 0;
+    width: min(520px, calc(100vw - 24px));
+    padding: 14px 16px;
+    font-size: 11px;
+  }
+
+  #help dl {
+    gap: 3px 12px;
+  }
+
+  body .lil-gui.tuning.autoPlace {
+    top: calc(60px + env(safe-area-inset-top));
+    left: calc(8px + env(safe-area-inset-left));
+    right: calc(8px + env(safe-area-inset-right));
+    width: auto !important;
+    max-height: 60%;
+  }
+
+  #bench-result {
+    max-width: calc(100vw - 24px);
+    font-size: 11px;
+    white-space: pre-wrap;
+  }
+
+  #fatal {
+    inset: 10% 12px auto;
+  }
 }

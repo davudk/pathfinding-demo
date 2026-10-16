@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#090a0d" />
     <title>RTS Pathfinding</title>
   </head>
   <body>
@@ -14,6 +15,18 @@
     </div>
     <div id="help" class="hidden">
       <h2>Controls</h2>
+      <dl class="touch-only">
+        <dt>Tap a unit</dt><dd>Select (tap twice: same type in view)</dd>
+        <dt>Hold, then drag</dt><dd>Box select</dd>
+        <dt>Tap the ground</dt><dd>Move the selection there</dd>
+        <dt>Drag / pinch</dt><dd>Pan / zoom the camera</dd>
+        <dt>Patrol · Stop · Hold</dt><dd>Command bar (appears with a selection)</dd>
+        <dt>⇧ Shift</dt><dd>Queue waypoints and add to the selection</dd>
+        <dt>Group chips</dt><dd>Tap: select (twice: center) · hold: reassign · + group: new</dd>
+        <dt>Minimap</dt><dd>Tap/drag: camera · in Patrol mode: order</dd>
+        <dt>☰ menu</dt><dd>Scenarios, editor, simulation, overlays, tuning</dd>
+      </dl>
+      <h2 class="touch-only">Keyboard and mouse</h2>
       <dl>
         <dt>Left click / drag</dt><dd>Select / box select</dd>
         <dt>Shift + click / drag</dt><dd>Toggle / add to selection</dd>
@@ -42,6 +55,10 @@
       </dl>
     </div>
     <div id="hint">F1 — controls</div>
+    <div id="topbar">
+      <button id="stats-btn" title="Show more or fewer stats">Stats</button>
+      <button id="menu-btn" title="Menu" aria-expanded="false" aria-controls="editor">☰</button>
+    </div>
     <div id="toast"></div>
     <div id="editor">
       <div class="ed-title">Scenario</div>
@@ -70,11 +87,57 @@
       </div>
       <input id="ed-file" type="file" accept=".json,application/json" hidden />
       <div id="ed-hint"></div>
+      <div class="touch-only ed-section">
+        <div class="ed-title">Simulation</div>
+        <div class="ed-row">
+          <button data-act="pause" title="Pause / resume (Space)">⏸ Pause</button>
+          <button data-act="step" title="Step one tick while paused (.)">⏭ Step</button>
+        </div>
+        <div class="ed-row">
+          <button data-act="slower" title="Slower ([)">− Slower</button>
+          <button data-act="faster" title="Faster (])">+ Faster</button>
+        </div>
+        <div class="ed-row">
+          <button data-act="spawn" title="Spawn 1000 units (=)">✦ +1000</button>
+          <button data-act="delete" title="Remove the selection (Delete)">✕ Remove</button>
+        </div>
+        <div class="ed-title">View</div>
+        <div class="ed-row">
+          <button data-act="nav" title="Navmesh overlay (F2)">△ Navmesh</button>
+          <button data-act="navclass" title="Cycle radius class (F3)">◎ Radius</button>
+        </div>
+        <div class="ed-row">
+          <button data-act="fields" title="Destination-field arrows (F4)">⇢ Fields</button>
+          <button data-act="tuning" title="Tuning panel (F5)">⚙ Tuning</button>
+        </div>
+        <div class="ed-row">
+          <button data-act="stats" title="Toggle stats (`)">▤ Stats</button>
+          <button data-act="help" title="Controls (F1)">? Help</button>
+        </div>
+      </div>
     </div>
     <canvas id="minimap"></canvas>
     <div id="bottom">
       <div id="group-bar"></div>
       <div id="sel-summary" class="hidden"></div>
+      <div id="cmdbar" class="touch-only hidden">
+        <div id="cmd-units" class="cmd-row">
+          <button data-cmd="patrol" title="Patrol: tap a point (P)">⟲ Patrol</button>
+          <button data-cmd="stop" title="Stop (S)">■ Stop</button>
+          <button data-cmd="hold" title="Hold position (H)">⛊ Hold</button>
+          <button data-cmd="shift" title="Queue waypoints and add to the selection (Shift)">⇧ Shift</button>
+          <button data-cmd="deselect" title="Clear the selection (Esc)">✕</button>
+        </div>
+        <div id="cmd-editor" class="cmd-row hidden">
+          <span id="cmd-editor-label"></span>
+          <button data-cmd="smaller" title="Smaller (Q)">−</button>
+          <button data-cmd="bigger" title="Bigger (E)">+</button>
+          <button data-cmd="close-poly" title="Close the polygon (Enter)">✓ Close</button>
+          <button data-cmd="pop-vertex" title="Remove the last point (Backspace)">⌫</button>
+          <button data-cmd="ed-undo" title="Undo (Ctrl/⌘ + Z)">↶</button>
+          <button data-cmd="ed-done" title="Leave the tool (Esc)">Done</button>
+        </div>
+      </div>
     </div>
     <div id="bench-result" class="hidden"></div>
     <div id="fatal" class="hidden"></div>

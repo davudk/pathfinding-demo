@@ -9,6 +9,7 @@ export class Hud {
     if (!row) {
       row = document.createElement('div');
       row.className = 'hud-row';
+      row.dataset.key = key;
       const l = document.createElement('span');
       l.className = 'hud-label';
       l.textContent = label;

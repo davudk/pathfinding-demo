@@ -41,6 +41,20 @@ Open http://localhost:5173 and press **F1** for controls. Pick a scenario in the
 | Space / . / [ ] | Pause / step / slower or faster |
 | = / Delete | Spawn 1000 ambient units / remove the selection |
 
+### Touch (phones and tablets)
+
+On small screens the scenario and editor panel becomes a ☰ drawer, the stats collapse to four rows (**Stats** expands them), and the minimap shrinks to fit. Touch devices also get a command bar and extra drawer buttons for the keyboard-only features.
+
+| Gesture | Action |
+|---|---|
+| Tap a unit | Select (tap twice: same type in view) |
+| Hold, then drag | Box select |
+| Tap the ground | Move the selection there |
+| One-finger drag, two-finger pinch | Pan, zoom |
+| Command bar | Patrol, Stop, Hold, ⇧ Shift (queue and add to the selection), ✕ deselect; editor size, close polygon, undo |
+| Group chips | Tap: select (twice: center) · hold: reassign · **+ group**: new group |
+| ☰ drawer | Scenarios, editor tools, pause, step and speed, spawn and remove, overlays, tuning, help |
+
 ### URL parameters
 
 | Param | Default | Meaning |
@@ -85,4 +99,4 @@ Then open `http://localhost:4173/?bench=30`.
 - `src/shared/` — protocol and snapshot layout, geometry, map format, archetypes, factions, tuning, profiler
 - `src/app/` — main-thread orchestration: sim host, snapshot ring, render clock, overlays, editor, tuning panel, benchmark
 - `src/render/` — WebGL2: distance-field terrain (bevel, ambient occlusion, cast shadows), instanced buildings and SDF units, thick lines, debug fills
-- `src/input/` — camera, selection, commands, control groups · `src/ui/` — HUD, minimap, selection panel
+- `src/input/` — camera, selection, commands, control groups, touch gestures · `src/ui/` — HUD, minimap, selection panel

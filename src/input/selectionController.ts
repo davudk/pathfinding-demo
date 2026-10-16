@@ -60,50 +60,76 @@ export class SelectionController {
     this.sx1 = e.offsetX;
     this.sy1 = e.offsetY;
     if (!this.dragging && Math.hypot(this.sx1 - this.sx0, this.sy1 - this.sy0) > DRAG_THRESHOLD_PX) this.dragging = true;
-    if (this.dragging) {
-      const st = this.boxEl.style;
-      st.display = 'block';
-      st.left = `${Math.min(this.sx0, this.sx1)}px`;
-      st.top = `${Math.min(this.sy0, this.sy1)}px`;
-      st.width = `${Math.abs(this.sx1 - this.sx0)}px`;
-      st.height = `${Math.abs(this.sy1 - this.sy0)}px`;
-    }
+    if (this.dragging) this.showBox(this.sx0, this.sy0, this.sx1, this.sy1);
   };
 
   private readonly onUp = (e: PointerEvent): void => {
     if (e.button !== 0 || !this.down) return;
     this.down = false;
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
+    this.hideBox();
+    if (this.dragging) {
+      this.dragging = false;
+      this.boxSelect(this.sx0, this.sy0, this.sx1, this.sy1, e.shiftKey);
+      return;
+    }
+    this.clickAt(e.offsetX, e.offsetY, e.shiftKey, e.ctrlKey || e.metaKey);
+  };
+
+  /** Draws the selection rectangle between two screen points. */
+  showBox(x0: number, y0: number, x1: number, y1: number): void {
+    const st = this.boxEl.style;
+    st.display = 'block';
+    st.left = `${Math.min(x0, x1)}px`;
+    st.top = `${Math.min(y0, y1)}px`;
+    st.width = `${Math.abs(x1 - x0)}px`;
+    st.height = `${Math.abs(y1 - y0)}px`;
+  }
+
+  hideBox(): void {
     this.boxEl.style.display = 'none';
+  }
+
+  /** Selects the units inside a screen rectangle (`add`: Shift). */
+  boxSelect(x0: number, y0: number, x1: number, y1: number, add: boolean): void {
     const s = this.snapshot();
     if (!s) return;
     const cam = this.cam;
     const out = this.scratch;
     out.length = 0;
+    boxSelect(s, cam.screenToWorldX(x0), cam.screenToWorldY(y0), cam.screenToWorldX(x1), cam.screenToWorldY(y1), out);
+    this.sel.set(out, add);
+  }
 
-    if (this.dragging) {
-      this.dragging = false;
-      boxSelect(s, cam.screenToWorldX(this.sx0), cam.screenToWorldY(this.sy0), cam.screenToWorldX(this.sx1), cam.screenToWorldY(this.sy1), out);
-      this.sel.set(out, e.shiftKey);
-      return;
-    }
+  /** The unit under a screen point (0 if none), with a few pixels of slop (more for fingers). */
+  pickAt(sx: number, sy: number, slopPx = 3): number {
+    const s = this.snapshot();
+    return s ? pickUnit(s, this.cam.screenToWorldX(sx), this.cam.screenToWorldY(sy), slopPx / this.cam.zoom) : 0;
+  }
 
-    const h = pickUnit(s, cam.screenToWorldX(e.offsetX), cam.screenToWorldY(e.offsetY), 3 / cam.zoom);
+  /** A click at a screen point: select, toggle (Shift), or same type in view (double-click / Ctrl). */
+  clickAt(sx: number, sy: number, shift: boolean, sameType: boolean, slopPx = 3): void {
+    const s = this.snapshot();
+    if (!s) return;
+    const cam = this.cam;
+    const out = this.scratch;
+    out.length = 0;
+    const h = this.pickAt(sx, sy, slopPx);
     const now = performance.now();
     const isDouble = h !== 0 && h === this.lastClickHandle && now - this.lastClickAt < DOUBLE_CLICK_MS;
     this.lastClickAt = now;
     this.lastClickHandle = h;
     if (h === 0) {
-      if (!e.shiftKey) this.sel.clear();
+      if (!shift) this.sel.clear();
       return;
     }
-    if (isDouble || e.ctrlKey || e.metaKey) {
+    if (isDouble || sameType) {
       selectSameType(s, h, cam.screenToWorldX(0), cam.screenToWorldY(0), cam.screenToWorldX(cam.viewW), cam.screenToWorldY(cam.viewH), out);
-      this.sel.set(out, e.shiftKey);
-    } else if (e.shiftKey) {
+      this.sel.set(out, shift);
+    } else if (shift) {
       this.sel.toggle(h);
     } else {
       this.sel.set([h], false);
     }
-  };
+  }
 }

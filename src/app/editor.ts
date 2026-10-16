@@ -80,6 +80,36 @@ export class Editor {
     }
   }
 
+  /** Short tool status for the touch tool strip (no keyboard hints). */
+  get label(): string {
+    switch (this.tool) {
+      case 'building': {
+        const [w, h] = BUILD_SIZES[this.sizeIdx];
+        return `Building ${w}×${h} · tap to place`;
+      }
+      case 'erase':
+        return 'Erase · tap a building';
+      case 'rock':
+      case 'carve':
+        return `${this.tool === 'rock' ? 'Rock' : 'Carve'} polygon · ${this.poly.length / 2} points`;
+      case 'brushAdd':
+      case 'brushCarve':
+        return `${this.tool === 'brushAdd' ? 'Rock' : 'Carve'} brush r=${BRUSH_RADII[this.brushIdx]} · tap to stamp`;
+      default:
+        return '';
+    }
+  }
+
+  /** True for tools with a size (buildings, brushes). */
+  get sizable(): boolean {
+    return this.tool === 'building' || this.tool === 'brushAdd' || this.tool === 'brushCarve';
+  }
+
+  /** True while a polygon is being drawn. */
+  get drawing(): boolean {
+    return this.tool === 'rock' || this.tool === 'carve';
+  }
+
   get canUndo(): boolean {
     return this.undoStack.length > 0;
   }
@@ -120,18 +150,22 @@ export class Editor {
       this.commit({ kind: 'terrain', shape: this.shape(this.tool === 'rock' ? 'add' : 'subtract', this.poly) });
     }
     this.poly = [];
+    this.onChange();
   }
 
   /** Backspace while drawing: drop the last vertex. Returns true if it consumed the key. */
   popVertex(): boolean {
     if (this.poly.length === 0) return false;
     this.poly.length -= 2;
+    this.onChange();
     return true;
   }
 
   cancel(): void {
-    if (this.poly.length) this.poly = [];
-    else this.setTool(null);
+    if (this.poly.length) {
+      this.poly = [];
+      this.onChange();
+    } else this.setTool(null);
   }
 
   undo(): void {
@@ -189,7 +223,15 @@ export class Editor {
   private readonly onDown = (e: PointerEvent): void => {
     if (!this.tool || e.button !== 0) return;
     e.stopImmediatePropagation();
-    const x = this.cam.screenToWorldX(e.offsetX), y = this.cam.screenToWorldY(e.offsetY);
+    this.clickAt(e.offsetX, e.offsetY);
+  };
+
+  /** A click or tap at a screen point with the current tool. */
+  clickAt(sx: number, sy: number): void {
+    if (!this.tool) return;
+    const x = this.cam.screenToWorldX(sx), y = this.cam.screenToWorldY(sy);
+    this.cursorX = x;
+    this.cursorY = y;
     const now = performance.now();
     const dbl = now - this.lastClick < 300;
     this.lastClick = now;
@@ -223,7 +265,8 @@ export class Editor {
         break;
       }
     }
-  };
+    this.onChange();
+  }
 
   /** Redraws the tool ghost at the cursor. */
   update(): void {

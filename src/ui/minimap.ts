@@ -30,7 +30,9 @@ export class Minimap {
     private readonly cam: Camera,
     private readonly onCenter: (x: number, y: number) => void,
     private readonly onOrder: (x: number, y: number, queue: boolean) => void,
-    readonly cssSize = 208,
+    /** Left click while a targeting mode is armed: return true if it issued the order. */
+    private readonly onTarget: (x: number, y: number, queue: boolean) => boolean = () => false,
+    private cssSize = 208,
   ) {
     this.ctx = canvas.getContext('2d', { willReadFrequently: true })!;
     this.colors = new Uint32Array(FACTION_COLORS.map(([r, g, b]) => abgr(r * 255 * 1.1, g * 255 * 1.1, b * 255 * 1.1)));
@@ -52,6 +54,13 @@ export class Minimap {
     this.canvas.style.width = `${this.cssSize}px`;
     this.canvas.style.height = `${(this.cssSize * mapH) / mapW}px`;
     this.setBuildings(buildings);
+  }
+
+  /** Changes the on-screen width (responsive layout) and re-bakes at the new resolution. */
+  resize(cssSize: number): void {
+    if (cssSize === this.cssSize) return;
+    this.cssSize = cssSize;
+    if (this.base) this.setMap(this.terrain, this.buildings, this.mapW, this.mapH);
   }
 
   setPalette(colors: readonly (readonly [number, number, number])[]): void {
@@ -149,6 +158,7 @@ export class Minimap {
       return;
     }
     if (e.button !== 0) return;
+    if (this.onTarget(x, y, e.shiftKey)) return;
     this.dragging = true;
     this.canvas.setPointerCapture(e.pointerId);
     this.onCenter(x, y);

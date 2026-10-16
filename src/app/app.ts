@@ -21,6 +21,7 @@ import { rgba, type LineBatch } from '../render/passes/lines';
 import { CameraController, isTypingTarget } from '../input/cameraController';
 import { Selection } from '../input/selection';
 import { SelectionController } from '../input/selectionController';
+import { TouchController } from '../input/touchController';
 import { Hud } from '../ui/hud';
 import { FrameGraph } from '../debug/frameGraph';
 import { RenderClock } from './renderClock';
@@ -28,6 +29,12 @@ import { createSimHost, type SimHost } from './simHost';
 import type { Snapshot } from './snapshotRing';
 
 const FrameSys = { Frame: 0, Cpu: 1 } as const;
+
+/** Phones (portrait or landscape) get the compact layout: drawer menu, small minimap, compact stats. */
+const COMPACT_QUERY = '(max-width: 760px), (max-height: 500px)';
+/** Finger taps pick units with more slop than mouse clicks (CSS px). */
+const TOUCH_PICK_SLOP_PX = 12;
+const TIME_SCALES = [0.125, 0.25, 0.5, 1, 2, 4];
 
 export const CUSTOM_MAP_KEY = 'rts-custom-map';
 
@@ -106,6 +113,10 @@ export class App {
   private lastPrune = 0;
   private watchedVersion = -1;
   private toastTimer = 0;
+  /** Touch stand-in for a held Shift key (queue orders, add to the selection). */
+  private touchShift = false;
+  private cmdBarKey = '';
+  private readonly compactQuery = window.matchMedia(COMPACT_QUERY);
 
   constructor(private readonly el: AppElements, scene: SceneConfig, hostOpts: { main: boolean; forceTransfer: boolean }) {
     this.renderer = new Renderer(el.canvas);
@@ -130,14 +141,261 @@ export class App {
       cam,
       (x, y) => this.camCtl.centerOn(x, y),
       (x, y, queue) => this.commands.orderAt('move', x, y, queue),
+      (x, y, queue) => {
+        const mode = this.commands.mode;
+        if (mode === 'none') return false;
+        const q = queue || this.touchShift;
+        this.commands.orderAt(mode, x, y, q);
+        if (!q) this.commands.setMode('none');
+        return true;
+      },
     );
-    this.panel = new SelectionPanel(el.selSummary, el.groupBar);
+    this.panel = new SelectionPanel(el.selSummary, el.groupBar, {
+      recall: (n) => this.recallGroup(n),
+      assign: (n) => this.assignGroup(n),
+      assignNew: () => {
+        const n = this.groups.groups.findIndex((g, k) => k > 0 && !g);
+        if (n > 0) this.assignGroup(n);
+        else this.showToast('All control groups are in use — hold a group to reassign it');
+      },
+    });
     this.editor = new Editor(el.canvas, cam, this.renderer.lines.batch(256), () => ({ w: this.mapW, h: this.mapH }), (cmd) => this.host.command(cmd), () => this.syncEditorPanel());
     this.overLines.push(this.editor.ghost);
     this.wireEditorPanel();
     this.tuning = new TuningPanel((cmd) => this.host.command(cmd), (d) => this.applyDisplay(d));
     this.host.onEvent = this.onSimEvent;
     window.addEventListener('keydown', this.onKey);
+    new TouchController(el.canvas, this.camCtl, {
+      tap: (sx, sy) => this.onTap(sx, sy),
+      box: (x0, y0, x1, y1, done) => {
+        if (!done) {
+          this.selCtl.showBox(x0, y0, x1, y1);
+          return;
+        }
+        this.selCtl.hideBox();
+        this.selCtl.boxSelect(x0, y0, x1, y1, this.touchShift);
+      },
+      cancelBox: () => this.selCtl.hideBox(),
+    });
+    this.wireTouchUi();
+    this.wireLayout();
+  }
+
+  /** Touch tap on the map: editor tool, armed command, select a unit, or move the selection there. */
+  private onTap(sx: number, sy: number): void {
+    if (this.editor.active) {
+      this.editor.clickAt(sx, sy);
+      return;
+    }
+    const cam = this.renderer.camera;
+    const x = cam.screenToWorldX(sx), y = cam.screenToWorldY(sy);
+    if (this.commands.mode !== 'none') {
+      this.commands.orderAt(this.commands.mode, x, y, this.touchShift);
+      if (!this.touchShift) this.commands.setMode('none');
+      return;
+    }
+    if (this.selection.handles.size > 0 && this.selCtl.pickAt(sx, sy, TOUCH_PICK_SLOP_PX) === 0) {
+      this.commands.orderAt('move', x, y, this.touchShift);
+      return;
+    }
+    this.selCtl.clickAt(sx, sy, this.touchShift, false, TOUCH_PICK_SLOP_PX);
+  }
+
+  /** Touch devices: body.touch class, command bar, drawer actions, tap-to-close help. */
+  private wireTouchUi(): void {
+    const setTouch = (): void => {
+      if (document.body.classList.contains('touch')) return;
+      document.body.classList.add('touch');
+      this.cmdBarKey = '';
+    };
+    if (window.matchMedia('(pointer: coarse)').matches) setTouch();
+    window.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') setTouch(); }, { capture: true });
+
+    document.getElementById('cmdbar')?.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-cmd]');
+      if (!b) return;
+      switch (b.dataset.cmd) {
+        case 'patrol':
+          this.commands.setMode(this.commands.mode === 'patrol' ? 'none' : 'patrol');
+          break;
+        case 'stop':
+        case 'hold':
+          this.stopOrHold(b.dataset.cmd);
+          break;
+        case 'shift':
+          this.touchShift = !this.touchShift;
+          break;
+        case 'deselect':
+          this.commands.setMode('none');
+          this.selection.clear();
+          break;
+        case 'smaller':
+        case 'bigger':
+          this.editor.resize(b.dataset.cmd === 'bigger' ? 1 : -1);
+          break;
+        case 'close-poly':
+          this.editor.finishPolygon();
+          break;
+        case 'pop-vertex':
+          this.editor.popVertex();
+          break;
+        case 'ed-undo':
+          this.editor.undo();
+          break;
+        case 'ed-done':
+          this.editor.setTool(null);
+          break;
+      }
+      this.cmdBarKey = '';
+    });
+
+    document.getElementById('editor')?.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]');
+      if (!b) return;
+      switch (b.dataset.act) {
+        case 'pause': this.togglePause(); break;
+        case 'step': this.stepTick(); break;
+        case 'slower': this.changeSpeed(-1); break;
+        case 'faster': this.changeSpeed(1); break;
+        case 'spawn': this.host.command({ kind: 'spawnRandom', count: 1000 }); break;
+        case 'delete': this.removeSelected(); break;
+        case 'nav': this.nav.toggle(); break;
+        case 'navclass': this.nav.cycleClass(); break;
+        case 'fields': this.fieldOverlay.toggle(); break;
+        case 'tuning': this.closeMenu(); this.tuning.toggle(); break;
+        case 'stats': this.el.hud.parentElement?.classList.toggle('hidden'); break;
+        case 'help': this.closeMenu(); this.el.help.classList.toggle('hidden'); break;
+      }
+      this.syncDrawerButtons();
+    });
+
+    this.el.help.addEventListener('click', () => this.el.help.classList.add('hidden'));
+  }
+
+  /** Compact layout: drawer menu, stats button, minimap size that follows the viewport. */
+  private wireLayout(): void {
+    const hudBox = this.el.hud.parentElement;
+    const menuBtn = document.getElementById('menu-btn');
+    menuBtn?.addEventListener('click', () => this.setMenuOpen(!document.body.classList.contains('menu-open')));
+    document.getElementById('stats-btn')?.addEventListener('click', () => {
+      if (!hudBox) return;
+      if (hudBox.classList.contains('hidden')) hudBox.classList.remove('hidden', 'compact');
+      else hudBox.classList.toggle('compact');
+    });
+    // Tapping the map (or anything outside the drawer) closes it.
+    window.addEventListener('pointerdown', (e) => {
+      if (!document.body.classList.contains('menu-open')) return;
+      const t = e.target as Element;
+      if (!t.closest('#editor, #topbar, .lil-gui')) this.setMenuOpen(false);
+    }, { capture: true });
+
+    const apply = (): void => {
+      const compact = this.compactQuery.matches;
+      if (hudBox) hudBox.classList.toggle('compact', compact);
+      if (!compact) this.setMenuOpen(false);
+      this.applyMinimapSize();
+    };
+    this.compactQuery.addEventListener('change', apply);
+    window.addEventListener('resize', () => this.applyMinimapSize());
+    apply();
+  }
+
+  private applyMinimapSize(): void {
+    const size = this.compactQuery.matches
+      ? Math.round(Math.max(96, Math.min(160, Math.min(window.innerWidth, window.innerHeight) * 0.32)))
+      : 208;
+    this.minimap.resize(size);
+    document.documentElement.style.setProperty('--minimap-w', `${size}px`);
+  }
+
+  private setMenuOpen(open: boolean): void {
+    document.body.classList.toggle('menu-open', open);
+    document.getElementById('menu-btn')?.setAttribute('aria-expanded', String(open));
+    if (open) this.syncDrawerButtons();
+  }
+
+  private closeMenu(): void {
+    if (this.compactQuery.matches) this.setMenuOpen(false);
+  }
+
+  /** Reflects toggle state on the touch drawer buttons. */
+  private syncDrawerButtons(): void {
+    const set = (act: string, on: boolean, text?: string): void => {
+      const b = document.querySelector<HTMLButtonElement>(`#editor [data-act="${act}"]`);
+      if (!b) return;
+      b.classList.toggle('on', on);
+      if (text) b.textContent = text;
+    };
+    set('pause', this.paused, this.paused ? '▶ Resume' : '⏸ Pause');
+    set('slower', this.timeScale < 1, `− Slower${this.timeScale < 1 ? ` ×${this.timeScale}` : ''}`);
+    set('faster', this.timeScale > 1, `+ Faster${this.timeScale > 1 ? ` ×${this.timeScale}` : ''}`);
+    set('nav', this.nav.enabled);
+    set('fields', this.fieldOverlay.enabled);
+    set('stats', !this.el.hud.parentElement?.classList.contains('hidden'));
+  }
+
+  /** Shows the unit or editor command row (touch) and keeps its toggles in sync. */
+  private syncCmdBar(): void {
+    if (!document.body.classList.contains('touch')) return;
+    const ed = this.editor.active;
+    const units = !ed && this.selection.handles.size > 0;
+    const key = `${ed ? this.editor.label : ''}|${units}|${this.selection.handles.size > 0}|${this.commands.mode}|${this.touchShift}|${this.editor.canUndo}`;
+    if (key === this.cmdBarKey) return;
+    this.cmdBarKey = key;
+    const bar = document.getElementById('cmdbar');
+    if (!bar) return;
+    bar.classList.toggle('hidden', !ed && !units);
+    document.body.classList.toggle('has-selection', this.selection.handles.size > 0);
+    document.getElementById('cmd-units')?.classList.toggle('hidden', !units);
+    document.getElementById('cmd-editor')?.classList.toggle('hidden', !ed);
+    const btn = (cmd: string): HTMLButtonElement | null => bar.querySelector<HTMLButtonElement>(`[data-cmd="${cmd}"]`);
+    btn('patrol')?.classList.toggle('on', this.commands.mode === 'patrol');
+    btn('shift')?.classList.toggle('on', this.touchShift);
+    if (ed) {
+      const label = document.getElementById('cmd-editor-label');
+      if (label) label.textContent = this.editor.label;
+      for (const c of ['smaller', 'bigger']) btn(c)?.classList.toggle('hidden', !this.editor.sizable);
+      for (const c of ['close-poly', 'pop-vertex']) btn(c)?.classList.toggle('hidden', !this.editor.drawing);
+      const undo = btn('ed-undo');
+      if (undo) undo.disabled = !this.editor.canUndo;
+    }
+  }
+
+  private togglePause(): void {
+    this.paused = !this.paused;
+    this.host.control({ paused: this.paused });
+  }
+
+  private stepTick(): void {
+    if (this.paused) this.host.control({ step: true });
+  }
+
+  private changeSpeed(dir: -1 | 1): void {
+    const i = TIME_SCALES.indexOf(this.timeScale);
+    this.timeScale = TIME_SCALES[Math.max(0, Math.min(TIME_SCALES.length - 1, (i < 0 ? 3 : i) + dir))];
+    this.host.control({ timeScale: this.timeScale });
+  }
+
+  private removeSelected(): void {
+    if (this.selection.handles.size === 0) return;
+    this.host.command({ kind: 'despawn', handles: Int32Array.from(this.selection.handles) });
+    this.selection.clear();
+  }
+
+  private stopOrHold(kind: 'stop' | 'hold'): void {
+    if (this.selection.handles.size > 0) this.host.command({ kind, handles: Int32Array.from(this.selection.handles) });
+  }
+
+  private assignGroup(n: number): void {
+    this.groups.assign(n, this.selection.handles);
+    this.showToast(`Control group ${n}: ${this.selection.handles.size} units`);
+  }
+
+  private recallGroup(n: number): void {
+    const { handles, double } = this.groups.recall(n, performance.now());
+    if (handles.length === 0) return;
+    this.selection.set(handles, false);
+    if (double) this.centerOnHandles(handles);
   }
 
   private readonly onSimEvent = (msg: FromSim): void => {
@@ -234,7 +492,10 @@ export class App {
   private wireEditorPanel(): void {
     this.wireScenarioPicker();
     for (const b of document.querySelectorAll<HTMLButtonElement>('#editor [data-tool]')) {
-      b.addEventListener('click', () => this.editor.setTool(b.dataset.tool as EditorTool));
+      b.addEventListener('click', () => {
+        this.editor.setTool(b.dataset.tool as EditorTool);
+        if (this.editor.active) this.closeMenu();
+      });
     }
     const on = (id: string, fn: () => void): void => document.getElementById(id)?.addEventListener('click', fn);
     on('ed-undo', () => this.editor.undo());
@@ -269,6 +530,7 @@ export class App {
     if (redo) redo.disabled = !this.editor.canRedo;
     const hint = document.getElementById('ed-hint');
     if (hint) hint.textContent = this.editor.hint;
+    this.cmdBarKey = '';
   }
 
   /** Centers the camera on the centroid of the given units (control-group double tap). */
@@ -373,6 +635,7 @@ export class App {
         this.editor.update();
         this.minimap.update(now, b.views, this.selection.flags);
         this.panel.update(b.views, this.selection.handles, this.groups);
+        this.syncCmdBar();
         if (now - this.lastPrune > 2000) {
           this.lastPrune = now;
           const v = b.views;
@@ -434,21 +697,15 @@ export class App {
     switch (e.code) {
       case 'Space':
         e.preventDefault();
-        this.paused = !this.paused;
-        this.host.control({ paused: this.paused });
+        this.togglePause();
         break;
       case 'Period':
-        if (this.paused) this.host.control({ step: true });
+        this.stepTick();
         break;
       case 'BracketLeft':
-      case 'BracketRight': {
-        const scales = [0.125, 0.25, 0.5, 1, 2, 4];
-        const i = scales.indexOf(this.timeScale);
-        const j = Math.max(0, Math.min(scales.length - 1, (i < 0 ? 3 : i) + (e.code === 'BracketLeft' ? -1 : 1)));
-        this.timeScale = scales[j];
-        this.host.control({ timeScale: this.timeScale });
+      case 'BracketRight':
+        this.changeSpeed(e.code === 'BracketLeft' ? -1 : 1);
         break;
-      }
       case 'Backquote':
         this.el.hud.parentElement?.classList.toggle('hidden');
         break;
@@ -467,17 +724,9 @@ export class App {
       case 'Digit6': case 'Digit7': case 'Digit8': case 'Digit9': case 'Digit0': {
         const n = Number(e.code.slice(5));
         e.preventDefault();
-        if (e.ctrlKey || e.metaKey) {
-          this.groups.assign(n, this.selection.handles);
-          this.showToast(`Control group ${n}: ${this.selection.handles.size} units`);
-        } else if (e.shiftKey) {
-          this.groups.add(n, this.selection.handles);
-        } else {
-          const { handles, double } = this.groups.recall(n, performance.now());
-          if (handles.length === 0) break;
-          this.selection.set(handles, false);
-          if (double) this.centerOnHandles(handles);
-        }
+        if (e.ctrlKey || e.metaKey) this.assignGroup(n);
+        else if (e.shiftKey) this.groups.add(n, this.selection.handles);
+        else this.recallGroup(n);
         break;
       }
       case 'Equal':
@@ -486,10 +735,7 @@ export class App {
       case 'Delete':
       case 'Backspace':
         if (this.editor.active && this.editor.popVertex()) break;
-        if (this.selection.handles.size > 0) {
-          this.host.command({ kind: 'despawn', handles: Int32Array.from(this.selection.handles) });
-          this.selection.clear();
-        }
+        this.removeSelected();
         break;
       case 'F1':
         e.preventDefault();
@@ -543,9 +789,7 @@ export class App {
         break;
       case 'KeyS':
       case 'KeyH':
-        if (this.selection.handles.size > 0) {
-          this.host.command({ kind: e.code === 'KeyS' ? 'stop' : 'hold', handles: Int32Array.from(this.selection.handles) });
-        }
+        this.stopOrHold(e.code === 'KeyS' ? 'stop' : 'hold');
         break;
       case 'KeyX':
         this.editor.setTool('erase');

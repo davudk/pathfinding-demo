@@ -3,7 +3,20 @@ import { FACTION_COLORS, FACTION_NAMES } from '../shared/factions';
 import { I_ATTRS, I_HANDLE, INST_WORDS, SNAP_HEADER_WORDS, attrArchetype, attrFaction, type SnapshotViews } from '../shared/protocol';
 import type { ControlGroups } from '../input/controlGroups';
 
-/** Bottom-center panel: selection summary by unit type, and the control-group bar. */
+const LONG_PRESS_MS = 450;
+
+export interface GroupActions {
+  recall(n: number): void;
+  assign(n: number): void;
+  /** Assigns the selection to the first empty group. */
+  assignNew(): void;
+}
+
+/**
+ * Bottom-center panel: selection summary by unit type, and the control-group bar. Group chips
+ * are buttons: click/tap recalls (twice centers), long press reassigns; the "+" chip (touch
+ * only) puts the selection into a new group.
+ */
 export class SelectionPanel {
   private lastKey = '';
   private palette: readonly (readonly [number, number, number])[] = FACTION_COLORS;
@@ -14,7 +27,42 @@ export class SelectionPanel {
   }
   private lastGroups = -1;
 
-  constructor(private readonly summary: HTMLElement, private readonly bar: HTMLElement) {}
+  constructor(private readonly summary: HTMLElement, private readonly bar: HTMLElement, actions?: GroupActions) {
+    if (actions) this.wireGroups(actions);
+  }
+
+  private wireGroups(actions: GroupActions): void {
+    let timer = 0;
+    let pressed: HTMLElement | null = null;
+    this.bar.addEventListener('pointerdown', (e) => {
+      const chip = (e.target as HTMLElement).closest<HTMLElement>('.cg');
+      if (!chip || e.button !== 0) return;
+      e.preventDefault();
+      pressed = chip;
+      clearTimeout(timer);
+      const n = Number(chip.dataset.group);
+      if (n > 0) {
+        timer = window.setTimeout(() => {
+          if (pressed !== chip) return;
+          pressed = null;
+          navigator.vibrate?.(8);
+          actions.assign(n);
+        }, LONG_PRESS_MS);
+      }
+    });
+    const release = (e: PointerEvent): void => {
+      const chip = pressed;
+      pressed = null;
+      clearTimeout(timer);
+      if (!chip || e.type === 'pointercancel' || !chip.contains(e.target as Node)) return;
+      const n = Number(chip.dataset.group);
+      if (n > 0) actions.recall(n);
+      else actions.assignNew();
+    };
+    this.bar.addEventListener('pointerup', release);
+    this.bar.addEventListener('pointercancel', release);
+    this.bar.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
 
   update(s: SnapshotViews | null, handles: ReadonlySet<number>, groups: ControlGroups): void {
     if (s) this.updateSummary(s, handles);
@@ -23,13 +71,25 @@ export class SelectionPanel {
       this.bar.replaceChildren(
         ...groups.groups.map((g, n) => {
           if (n === 0 || !g) return null;
-          const el = document.createElement('div');
+          const el = document.createElement('button');
           el.className = 'cg';
+          el.dataset.group = String(n);
+          el.title = `Control group ${n}: click to select (twice: center) · hold to reassign`;
           el.innerHTML = `<span class="cg-key">${n}</span><span class="cg-count">${g.length}</span>`;
           return el;
-        }).filter((x): x is HTMLDivElement => x !== null),
+        }).filter((x): x is HTMLButtonElement => x !== null),
+        this.newGroupChip(),
       );
     }
+  }
+
+  private newGroupChip(): HTMLElement {
+    const el = document.createElement('button');
+    el.className = 'cg cg-new touch-only';
+    el.dataset.group = '0';
+    el.title = 'Put the selection into a new control group';
+    el.textContent = '+ group';
+    return el;
   }
 
   private updateSummary(s: SnapshotViews, handles: ReadonlySet<number>): void {

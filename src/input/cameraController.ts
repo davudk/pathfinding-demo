@@ -25,6 +25,8 @@ export class CameraController {
   private lastWheelAt = -Infinity;
   private lastWheelKind: 'mouse' | 'trackpad' = 'mouse';
   edgePan = true;
+  /** Set while touch pointers are down: iOS also reports the pinch as gesture events, which must not zoom twice. */
+  touching = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -58,6 +60,19 @@ export class CameraController {
   setZoom(z: number): void {
     this.zoomTarget = z;
     this.cam.zoom = z;
+  }
+
+  /** Touch grab pan: moves the world with the finger by a screen-space delta. */
+  panScreen(dx: number, dy: number): void {
+    this.cam.centerX -= dx / this.cam.zoom;
+    this.cam.centerY -= dy / this.cam.zoom;
+  }
+
+  /** Touch pinch: scales the zoom by `factor`, keeping the world point under (sx, sy) fixed. */
+  pinchAt(sx: number, sy: number, factor: number): void {
+    const z = this.clampZoom(this.cam.zoom * factor);
+    this.cam.zoomAt(sx, sy, z);
+    this.zoomTarget = z;
   }
 
   update(dtSec: number): void {
@@ -161,6 +176,7 @@ export class CameraController {
     type GestureEv = Event & { scale: number; clientX: number; clientY: number };
     this.canvas.addEventListener('gesturestart', (ev) => {
       ev.preventDefault();
+      if (this.touching) return;
       const g = ev as GestureEv;
       startZoom = this.cam.zoom;
       const r = this.canvas.getBoundingClientRect();
@@ -169,6 +185,7 @@ export class CameraController {
     });
     this.canvas.addEventListener('gesturechange', (ev) => {
       ev.preventDefault();
+      if (this.touching) return;
       const z = this.clampZoom(startZoom * (ev as GestureEv).scale);
       this.cam.zoomAt(ax, ay, z);
       this.zoomTarget = z;
