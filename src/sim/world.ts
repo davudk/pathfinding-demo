@@ -1,5 +1,6 @@
 import { UNIT_CAPACITY, DEFAULT_MAP_SIZE } from '../shared/constants';
 import { generateMap } from './map/generate';
+import { parseMap } from '../shared/mapFormat';
 import { loadWorldMap, type WorldMap } from './map/worldMap';
 import { Rng } from '../shared/rng';
 import { Profiler, SIM_SYSTEM_NAMES } from '../shared/profiler';
@@ -38,8 +39,13 @@ export interface World {
 }
 
 export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World {
-  const gen = generateMap(scene.mapSeed, DEFAULT_MAP_SIZE);
-  const map = loadWorldMap(gen.map, gen.mainPoint);
+  let map;
+  if (scene.mapJson) {
+    map = loadWorldMap(parseMap(scene.mapJson));
+  } else {
+    const gen = generateMap(scene.mapSeed, DEFAULT_MAP_SIZE);
+    map = loadWorldMap(gen.map, gen.mainPoint);
+  }
   const nav = NavMesh.build(map.width, map.height, map.terrain, map.buildingRings);
   const paths = new PathStore(capacity);
   const world: World = {

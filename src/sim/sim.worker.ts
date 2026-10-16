@@ -45,6 +45,9 @@ port.onmessage = (ev) => {
       case 'debugFields':
         runner?.fieldDebug();
         break;
+      case 'exportMap':
+        runner?.exportMap();
+        break;
     }
   } catch (err) {
     port.postMessage({ type: 'error', message: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) });

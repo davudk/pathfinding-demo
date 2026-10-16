@@ -9,7 +9,7 @@
 
 import { UNIT_CAPACITY } from './constants';
 import type { Polygon } from './geometry';
-import type { BuildingDef, ZoneDef } from './mapFormat';
+import type { BuildingDef, TerrainShape, ZoneDef } from './mapFormat';
 
 // ── Header (int32 / float32 words) ────────────────────────────────────────────
 export const SNAP_HEADER_WORDS = 64;
@@ -95,6 +95,8 @@ export interface SceneConfig {
   readonly units: number;
   /** Seed of the procedural map. */
   readonly mapSeed: number;
+  /** A map document (JSON) to load instead of generating one. */
+  readonly mapJson?: string;
 }
 
 /** Static map data the main thread needs for rendering (sent once, and again after edits). */
@@ -118,8 +120,11 @@ export interface MapRenderData {
 export type SimCommand =
   | { readonly kind: 'spawnRandom'; readonly count: number }
   | { readonly kind: 'despawn'; readonly handles: Int32Array }
-  | { readonly kind: 'placeBuilding'; readonly x: number; readonly y: number; readonly w: number; readonly h: number; readonly faction: number; readonly type: string }
-  | { readonly kind: 'removeBuildingAt'; readonly x: number; readonly y: number }
+  /** Places a building; the center is snapped so edges land on half units. */
+  | { readonly kind: 'placeBuilding'; readonly def: BuildingDef }
+  | { readonly kind: 'removeBuilding'; readonly id: string }
+  | { readonly kind: 'addTerrain'; readonly shape: TerrainShape }
+  | { readonly kind: 'removeTerrain'; readonly id: string }
   | { readonly kind: 'move'; readonly handles: Int32Array; readonly x: number; readonly y: number; readonly queue?: boolean }
   | { readonly kind: 'patrol'; readonly handles: Int32Array; readonly x: number; readonly y: number; readonly queue?: boolean }
   | { readonly kind: 'stop'; readonly handles: Int32Array }
@@ -163,12 +168,17 @@ export type ToSim =
   | { readonly type: 'returnBuffer'; readonly buffer: ArrayBuffer }
   | { readonly type: 'debugNavmesh'; readonly cls: number }
   | { readonly type: 'watchPaths'; readonly handles: Int32Array }
-  | { readonly type: 'debugFields' };
+  | { readonly type: 'debugFields' }
+  | { readonly type: 'exportMap' };
 
 export type FromSim =
   | { readonly type: 'ready'; readonly mapW: number; readonly mapH: number; readonly map: MapRenderData }
   | { readonly type: 'snapshot'; readonly tick: number; readonly buffer: ArrayBuffer }
   | { readonly type: 'buildings'; readonly buildings: readonly BuildingDef[] }
+  | { readonly type: 'terrain'; readonly terrain: readonly Polygon[] }
+  /** An edit the client issued was refused (e.g. invalid placement): drop it from undo history. */
+  | { readonly type: 'editRejected'; readonly id: string }
+  | { readonly type: 'mapJson'; readonly json: string }
   | { readonly type: 'notice'; readonly text: string }
   | { readonly type: 'navDebug'; readonly data: NavDebugData }
   | { readonly type: 'paths'; readonly entries: readonly PathEntry[]; readonly cleared: Int32Array }

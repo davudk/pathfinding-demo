@@ -29,8 +29,10 @@
         <dt>[ / ]</dt><dd>Slower / faster simulation</dd>
         <dt>=</dt><dd>Spawn 1000 random units</dd>
         <dt>Delete</dt><dd>Remove selected units</dd>
-        <dt>B / Shift + B</dt><dd>Place building at cursor / cycle size</dd>
-        <dt>X</dt><dd>Remove building at cursor</dd>
+        <dt>B / X</dt><dd>Editor: place / erase buildings (Q/E size)</dd>
+        <dt>R / T</dt><dd>Editor: draw rock / carve polygon (Enter closes)</dd>
+        <dt>G / C</dt><dd>Editor: rock / carve brush (Q/E radius)</dd>
+        <dt>Ctrl/⌘ + Z, Shift + Z</dt><dd>Undo / redo edits</dd>
         <dt>F2</dt><dd>Navmesh overlay</dd>
         <dt>F3</dt><dd>Cycle radius class (region colors)</dd>
         <dt>F4</dt><dd>Destination-field flow arrows</dd>
@@ -40,6 +42,31 @@
     </div>
     <div id="hint">F1 — controls</div>
     <div id="toast"></div>
+    <div id="editor">
+      <div class="ed-title">Editor</div>
+      <div class="ed-row">
+        <button data-tool="building" title="Place building (B)">▣ Building</button>
+        <button data-tool="erase" title="Erase building (X)">✕ Erase</button>
+      </div>
+      <div class="ed-row">
+        <button data-tool="rock" title="Draw rock polygon (R)">⬠ Rock</button>
+        <button data-tool="carve" title="Carve polygon (T)">⬡ Carve</button>
+      </div>
+      <div class="ed-row">
+        <button data-tool="brushAdd" title="Rock brush (G)">● Brush</button>
+        <button data-tool="brushCarve" title="Carve brush (C)">○ Carve</button>
+      </div>
+      <div class="ed-row">
+        <button id="ed-undo" title="Undo (Ctrl/⌘ + Z)">↶ Undo</button>
+        <button id="ed-redo" title="Redo (Ctrl/⌘ + Shift + Z)">↷ Redo</button>
+      </div>
+      <div class="ed-row">
+        <button id="ed-export" title="Download the map as JSON">⇩ Export</button>
+        <button id="ed-import" title="Load a map JSON">⇧ Import</button>
+      </div>
+      <input id="ed-file" type="file" accept=".json,application/json" hidden />
+      <div id="ed-hint"></div>
+    </div>
     <canvas id="minimap"></canvas>
     <div id="bottom">
       <div id="group-bar"></div>

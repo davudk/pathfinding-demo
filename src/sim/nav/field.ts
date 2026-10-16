@@ -33,6 +33,11 @@ export class DestField {
   py = new Float64Array(0);
   settled = new Uint8Array(0);
   settledCount = 0;
+  /** Bounding box of settled triangles (selective invalidation on mesh edits). */
+  minX = Infinity;
+  minY = Infinity;
+  maxX = -Infinity;
+  maxY = -Infinity;
   private readonly heap = new Heap();
   /** Triangles some member needs settled. */
   private readonly pending = new Set<number>();
@@ -67,6 +72,8 @@ export class DestField {
     this.next.fill(NONE);
     this.settled.fill(0);
     this.settledCount = 0;
+    this.minX = this.minY = Infinity;
+    this.maxX = this.maxY = -Infinity;
     this.heap.clear();
     this.pending.clear();
     this.maxPendingDist = 0;
@@ -124,6 +131,14 @@ export class DestField {
       settled[t] = 1;
       this.settledCount++;
       n++;
+      for (let k = 0; k < 3; k++) {
+        const v = cdt.tri[3 * t + k];
+        const vx = cdt.vx[v], vy = cdt.vy[v];
+        if (vx < this.minX) this.minX = vx;
+        if (vx > this.maxX) this.maxX = vx;
+        if (vy < this.minY) this.minY = vy;
+        if (vy > this.maxY) this.maxY = vy;
+      }
       if (this.pending.delete(t)) this.maxPendingDist = Math.max(this.maxPendingDist, dist[t]);
       const exit = nxt[t];
       for (let k = 0; k < 3; k++) {
@@ -162,6 +177,37 @@ export class DestField {
       }
     }
     return n;
+  }
+
+  /**
+   * After a mesh edit: the field is stale only if one of the rewritten / freed triangles was
+   * settled in it (any chain into the edited area passes through such a triangle). Otherwise
+   * every settled id and next-pointer is unchanged and the field is kept as is.
+   */
+  onMeshEdit(dirtyTris: readonly number[] | null): boolean {
+    let hit = dirtyTris === null;
+    if (!hit) for (const t of dirtyTris!) if (t < this.settled.length && this.settled[t]) { hit = true; break; }
+    if (hit) {
+      this.reset();
+      return true;
+    }
+    // Untouched: grow arrays if the mesh grew, keep everything else.
+    const cap = this.nav.cdt.tFlags.length;
+    if (this.dist.length < cap) {
+      const grow = <T extends Float64Array | Int32Array | Uint8Array>(a: T, fill: number): T => {
+        const b = new (a.constructor as new (n: number) => T)(cap);
+        b.fill(fill);
+        b.set(a);
+        return b;
+      };
+      this.dist = grow(this.dist, Infinity);
+      this.next = grow(this.next, NONE);
+      this.px = grow(this.px, 0);
+      this.py = grow(this.py, 0);
+      this.settled = grow(this.settled, 0);
+    }
+    this.version = this.nav.version;
+    return false;
   }
 
   /** Memory footprint (bytes), for stats. */
@@ -225,6 +271,13 @@ export class FieldRegistry {
     if (!f || --f.refs > 0) return;
     this.byId.delete(id);
     this.byKey.delete(f.key);
+  }
+
+  /** Applies a mesh edit to every field; returns how many had to restart. */
+  onMeshEdit(dirtyTris: readonly number[] | null): number {
+    let reset = 0;
+    for (const f of this.byId.values()) if (f.onMeshEdit(dirtyTris)) reset++;
+    return reset;
   }
 
   /** Expands fields round-robin until `budget` triangles are settled this tick. */

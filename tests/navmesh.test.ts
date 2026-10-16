@@ -45,6 +45,7 @@ describe('NavMesh on the generated map', () => {
   });
 
   it('has exactly one region for the smallest units and more for larger ones', () => {
+    nav.ensureRegions();
     // The map is one connected walkable area for the smallest class (normalization guarantees it)...
     // ...except for enclosures formed by buildings, e.g. the red base's depot ring.
     expect(nav.regionCounts[0]).toBeGreaterThanOrEqual(1);

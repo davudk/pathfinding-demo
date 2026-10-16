@@ -176,6 +176,7 @@ export class DynamicCDT {
 
   private freeTri(t: number): void {
     this.tFlags[t] = T_DEAD;
+    this.freedList.push(t);
     for (let k = 0; k < 3; k++) {
       this.opp[3 * t + k] = NONE;
       this.cRef[3 * t + k] = 0;
@@ -226,11 +227,21 @@ export class DynamicCDT {
     if (f !== NONE) this.opp[f] = e;
   }
 
+  /** Triangles freed since the last drainTouched(). */
+  private freedList: number[] = [];
+
   /** Returns and clears the list of triangles rewritten since the last call. */
   drainTouched(): number[] {
     const list = this.touchedList;
     this.touchedList = [];
     this.touchedGen++;
+    return list;
+  }
+
+  /** Returns and clears the list of triangles freed since the last call. */
+  drainFreed(): number[] {
+    const list = this.freedList;
+    this.freedList = [];
     return list;
   }
 

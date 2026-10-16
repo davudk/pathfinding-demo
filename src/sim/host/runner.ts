@@ -4,6 +4,7 @@ import type { FromSim, NavDebugData, PathEntry, SceneConfig, SimCommand, Snapsho
 import { createWorld, type World } from '../world';
 import { step } from '../step';
 import { writeSnapshot, writeTimings } from '../snapshot';
+import { serializeMap } from '../../shared/mapFormat';
 
 /** Where finished snapshots go: a transfer pool, a shared-memory ring, or the main thread. */
 export interface SnapshotSink {
@@ -45,6 +46,12 @@ export class SimRunner {
     const d = nav.exportDebug(cls);
     const data: NavDebugData = { version: nav.version, cls, ...d, stats: { ...nav.stats, regions: nav.stats.regions.slice() } };
     this.emit({ type: 'navDebug', data }, [d.edges.buffer, d.tris.buffer, d.region.buffer]);
+  }
+
+  /** The current map as JSON (source shapes, live buildings). */
+  exportMap(): void {
+    const m = this.world.map;
+    this.emit({ type: 'mapJson', json: serializeMap({ ...m.data, buildings: m.buildings.slice() }) });
   }
 
   fieldDebug(): void {

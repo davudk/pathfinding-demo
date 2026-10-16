@@ -208,6 +208,73 @@ body {
   color: var(--text-dim);
 }
 
+#editor {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  width: 176px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ed-title {
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ed-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+#editor button {
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+#editor button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+#editor button.on {
+  border-color: var(--select);
+  color: var(--select);
+  background: rgba(74, 222, 128, 0.1);
+}
+
+#editor button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#ed-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.35;
+  min-height: 0;
+}
+
+#ed-hint:empty {
+  display: none;
+}
+
 #fatal {
   position: fixed;
   inset: 20% 20% auto;

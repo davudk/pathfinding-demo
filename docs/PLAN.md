@@ -386,3 +386,26 @@ Execution plan:
   - A 500-unit mixed order gets 500/500 paths within 2 ticks. They exit the main base through the 5-wide ramp and settle 142 s later, 497/500 within 2R + 3 of the click (R = group packing radius).
   - A 985-unit order in the 10k scene gets all paths within 6 ticks (4 fields).
 - **Debug:** F4 shows destination-field flow arrows.
+
+**M7 — dynamic world and editor**
+- **Building edits** are incremental. They update the CDT, then locally:
+  1. rebuild the wall grid;
+  2. patch the occupancy raster for the footprint's region only;
+  3. **eject** units that no longer fit to the nearest free spot;
+  4. **re-plan only routes that cross the footprint**: individual paths are re-requested, and field followers drop their local corridor;
+  5. **restart only fields that had a settled triangle among the rewritten or freed triangle ids.** Every chain into the edited area passes through such a triangle, so the test is exact.
+
+  An edit far from every route costs about 2 ms and triggers 0 repaths and 0 field restarts (tested).
+- **Terrain edits** append or remove source shapes in the map document, then:
+  1. re-normalize (closing, pocket fill, around the original main point);
+  2. rebuild the navmesh in place;
+  3. eject units;
+  4. re-plan all routes.
+
+  New rock is clipped around existing buildings, and buildings that end up overlapping terrain (e.g. when a carve is undone) are removed. A rebuild takes 60–100 ms in the worker, which is fine for editor actions.
+- **Regions** are now lazy: computed only when something asks for them (the F2/F3 overlay). That removed about 3 ms from every building edit.
+- **Editor** (top-right panel): building (B) and erase (X), rock (R) and carve (T) polygons, rock (G) and carve (C) brushes, with Q/E for size or radius.
+  - Ghost previews; building placement is validated client-side with the simulation's own `PlacementChecker`.
+  - Undo/redo (Ctrl/⌘+Z, Shift+Z, Y) replays inverse id-based commands. Edits the simulation rejects are dropped from history.
+- **Map I/O:** Export downloads the current map JSON (source shapes plus live buildings). Import validates it with `parseMap` and reloads with `?map=custom`.
+- **Scenario:** `?scene=drop`, in which a 6×6 building lands on a marching 100-unit column. Nobody is ever left inside it, and everyone still arrives (tested).

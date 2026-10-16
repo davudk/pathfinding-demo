@@ -31,8 +31,20 @@ export interface NavStats {
   regions: number[];
 }
 
+export interface DirtyBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
 export class NavMesh {
-  readonly cdt: DynamicCDT;
+  cdt: DynamicCDT;
+  /** Area rewritten by the last edit (widths, triangle ids and fields there are stale). */
+  lastDirty: DirtyBox = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  /** Triangle ids rewritten or freed by the last edit (null after a full rebuild = all). */
+  lastDirtyTris: number[] | null = null;
+  private regionsDirty = true;
   /** Region id per triangle for each radius class; -1 = blocked / not traversable. */
   regions: Int32Array[] = [];
   regionCounts: number[] = [];
@@ -45,14 +57,53 @@ export class NavMesh {
   private searchMark: Uint32Array = new Uint32Array(0);
   private searchGen = 1;
 
-  private constructor(cdt: DynamicCDT, buildMs: number) {
+  private constructor(cdt: DynamicCDT) {
     this.cdt = cdt;
-    this.stats = { vertices: 0, triangles: 0, buildMs, lastUpdateMs: 0, regions: [] };
+    this.stats = { vertices: 0, triangles: 0, buildMs: 0, lastUpdateMs: 0, regions: [] };
   }
 
   /** Builds the mesh for a map: border points + terrain + buildings, all as constraints. */
   static build(width: number, height: number, terrain: readonly Polygon[], buildings: readonly Float64Array[]): NavMesh {
     const t0 = performance.now();
+    const nav = new NavMesh(NavMesh.triangulate(width, height, terrain, buildings));
+    nav.init(terrain, buildings);
+    nav.stats.buildMs = performance.now() - t0;
+    return nav;
+  }
+
+  /** Rebuilds the whole mesh in place (terrain edits). Everything is dirty afterwards. */
+  rebuild(terrain: readonly Polygon[], buildings: readonly Float64Array[]): void {
+    const t0 = performance.now();
+    this.cdt = NavMesh.triangulate(this.cdt.width, this.cdt.height, terrain, buildings);
+    this.stamp = new Uint32Array(0);
+    this.searchMark = new Uint32Array(0);
+    this.init(terrain, buildings);
+    this.lastDirty = { minX: 0, minY: 0, maxX: this.cdt.width, maxY: this.cdt.height };
+    this.lastDirtyTris = null;
+    this.version++;
+    this.stats.lastUpdateMs = performance.now() - t0;
+  }
+
+  /** Adds every obstacle as constraints, marks interiors blocked, computes widths. */
+  private init(terrain: readonly Polygon[], buildings: readonly Float64Array[]): void {
+    const nav = this;
+    const cdt = this.cdt;
+    for (const p of terrain) {
+      for (const r of p.rings) nav.constrainRing(r, 1);
+    }
+    for (const r of buildings) nav.constrainRing(r, 1);
+    // Blocked interiors: flood each obstacle from its first edge.
+    for (const p of terrain) nav.fillObstacle(p.rings[0], 1);
+    for (const r of buildings) nav.fillObstacle(r, 1);
+    cdt.drainTouched();
+    cdt.drainFreed();
+    nav.computeAllWidths();
+    nav.regionsDirty = true;
+    nav.refreshStats();
+  }
+
+  /** Delaunay triangulation of all obstacle points (constraints are added by init()). */
+  private static triangulate(width: number, height: number, terrain: readonly Polygon[], buildings: readonly Float64Array[]): DynamicCDT {
     // Points: border (fixed), terrain vertices (fixed), building corners.
     const xs: number[] = [], ys: number[] = [], fixed: number[] = [];
     const seen = new Set<number>();
@@ -76,21 +127,7 @@ export class NavMesh {
     for (const p of terrain) for (const r of p.rings) for (let i = 0; i < r.length; i += 2) add(r[i], r[i + 1], true);
     for (const r of buildings) for (let i = 0; i < r.length; i += 2) add(r[i], r[i + 1], false);
 
-    const cdt = DynamicCDT.fromPoints(width, height, Float64Array.from(xs), Float64Array.from(ys), Uint8Array.from(fixed));
-    const nav = new NavMesh(cdt, 0);
-    for (const p of terrain) {
-      for (const r of p.rings) nav.constrainRing(r, 1);
-    }
-    for (const r of buildings) nav.constrainRing(r, 1);
-    // Blocked interiors: flood each obstacle from its first edge.
-    for (const p of terrain) nav.fillObstacle(p.rings[0], 1);
-    for (const r of buildings) nav.fillObstacle(r, 1);
-    cdt.drainTouched();
-    nav.computeAllWidths();
-    nav.computeRegions();
-    nav.stats.buildMs = performance.now() - t0;
-    nav.refreshStats();
-    return nav;
+    return DynamicCDT.fromPoints(width, height, Float64Array.from(xs), Float64Array.from(ys), Uint8Array.from(fixed));
   }
 
   // ── Obstacles ───────────────────────────────────────────────────────────────
@@ -173,8 +210,22 @@ export class NavMesh {
 
   private afterEdit(t0: number): void {
     const touched = this.cdt.drainTouched();
+    this.lastDirtyTris = touched.concat(this.cdt.drainFreed());
+    const cdt = this.cdt;
+    const d: DirtyBox = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    for (const t of touched) {
+      if (!cdt.isLiveTri(t)) continue;
+      for (let k = 0; k < 3; k++) {
+        const v = cdt.tri[3 * t + k];
+        d.minX = Math.min(d.minX, cdt.vx[v]);
+        d.maxX = Math.max(d.maxX, cdt.vx[v]);
+        d.minY = Math.min(d.minY, cdt.vy[v]);
+        d.maxY = Math.max(d.maxY, cdt.vy[v]);
+      }
+    }
+    this.lastDirty = d;
     this.updateWidthsNear(touched);
-    this.computeRegions();
+    this.regionsDirty = true;
     this.version++;
     this.stats.lastUpdateMs = performance.now() - t0;
     this.refreshStats();
@@ -292,6 +343,14 @@ export class NavMesh {
   private edgeLen: Float32Array = new Float32Array(0);
   private regionStack: Int32Array = new Int32Array(0);
 
+  /** Region labels are recomputed lazily: only when something asks for them after an edit. */
+  ensureRegions(): void {
+    if (!this.regionsDirty) return;
+    this.regionsDirty = false;
+    this.computeRegions();
+    this.stats.regions = this.regionCounts.slice();
+  }
+
   /** Flood-fills connected regions per radius class (over-approximation; A* checks exactly). */
   computeRegions(): void {
     const cdt = this.cdt;
@@ -365,6 +424,7 @@ export class NavMesh {
    * obstacles, 2 = constrained; plus triangles (6 floats each) with their region per class.
    */
   exportDebug(cls: number): { edges: Float32Array; tris: Float32Array; region: Int32Array } {
+    this.ensureRegions();
     const cdt = this.cdt;
     const edges: number[] = [];
     const tris: number[] = [];

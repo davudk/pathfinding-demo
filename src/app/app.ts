@@ -1,8 +1,10 @@
+import { parseMap, type BuildingDef } from '../shared/mapFormat';
 import { H_ALIVE, H_NAV_VERSION, H_PATH_QUEUE, H_PATH_SERVED, H_SYS_BASE, H_TIME_F64, type FromSim, type SceneConfig } from '../shared/protocol';
-import { Faction } from '../shared/factions';
 import { NavOverlay } from './navOverlay';
 import { FieldOverlay } from './fieldOverlay';
 import { ClickMarkers, MARKER_MOVE, MARKER_PATROL, PathOverlay } from './pathOverlay';
+import { Editor, type EditorTool } from './editor';
+import type { Polygon } from '../shared/geometry';
 import { CommandController } from '../input/commandController';
 import { ControlGroups } from '../input/controlGroups';
 import { Minimap } from '../ui/minimap';
@@ -22,6 +24,17 @@ import { createSimHost, type SimHost } from './simHost';
 import type { Snapshot } from './snapshotRing';
 
 const FrameSys = { Frame: 0, Cpu: 1 } as const;
+
+export const CUSTOM_MAP_KEY = 'rts-custom-map';
+
+function downloadText(name: string, text: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export interface AppElements {
   readonly canvas: HTMLCanvasElement;
@@ -45,6 +58,7 @@ export function sceneFromUrl(params: URLSearchParams): SceneConfig {
     seed: num('seed', 42) >>> 0,
     units: Math.max(0, Math.min(16000, num('units', 10000))),
     mapSeed: num('mapSeed', 1337) >>> 0,
+    ...(params.get('map') === 'custom' && sessionStorage.getItem(CUSTOM_MAP_KEY) ? { mapJson: sessionStorage.getItem(CUSTOM_MAP_KEY)! } : {}),
   };
 }
 
@@ -82,11 +96,10 @@ export class App {
   private readonly groups = new ControlGroups();
   private readonly minimap: Minimap;
   private readonly panel: SelectionPanel;
+  private readonly editor: Editor;
+  private outlines: LineBatch | null = null;
   private lastPrune = 0;
   private watchedVersion = -1;
-  private pointerX = -1;
-  private pointerY = -1;
-  private buildSize = 1;
   private toastTimer = 0;
 
   constructor(private readonly el: AppElements, scene: SceneConfig, hostOpts: { main: boolean; forceTransfer: boolean }) {
@@ -114,11 +127,10 @@ export class App {
       (x, y, queue) => this.commands.orderAt('move', x, y, queue),
     );
     this.panel = new SelectionPanel(el.selSummary, el.groupBar);
+    this.editor = new Editor(el.canvas, cam, this.renderer.lines.batch(256), () => ({ w: this.mapW, h: this.mapH }), (cmd) => this.host.command(cmd), () => this.syncEditorPanel());
+    this.overLines.push(this.editor.ghost);
+    this.wireEditorPanel();
     this.host.onEvent = this.onSimEvent;
-    el.canvas.addEventListener('pointermove', (e) => {
-      this.pointerX = e.offsetX;
-      this.pointerY = e.offsetY;
-    });
     window.addEventListener('keydown', this.onKey);
   }
 
@@ -127,6 +139,17 @@ export class App {
       case 'buildings':
         this.renderer.buildings.setBuildings(msg.buildings);
         this.minimap.setBuildings(msg.buildings);
+        this.editor.setBuildings(msg.buildings);
+        this.buildingsCache = msg.buildings;
+        break;
+      case 'terrain':
+        this.setTerrain(msg.terrain);
+        break;
+      case 'editRejected':
+        this.editor.rejected(msg.id);
+        break;
+      case 'mapJson':
+        downloadText('map.json', msg.json);
         break;
       case 'notice':
         this.showToast(msg.text);
@@ -144,6 +167,68 @@ export class App {
   };
 
 
+
+  private buildingsCache: readonly BuildingDef[] = [];
+
+  /** Crisp rock outlines on top of the distance-field shading. */
+  private setOutlines(terrain: readonly Polygon[]): void {
+    let n = 16;
+    for (const p of terrain) for (const r of p.rings) n += r.length / 2;
+    const batch = this.outlines ?? this.renderer.lines.batch(n);
+    batch.clear();
+    for (const p of terrain) for (const r of p.rings) batch.polyline(r, true, rgba(150, 165, 190, 110), 1.1);
+    if (!this.outlines) {
+      this.outlines = batch;
+      this.underLines.push(batch);
+    }
+  }
+
+  /** New terrain from an edit: fill mesh, distance field, outlines, minimap, editor checks. */
+  private setTerrain(terrain: readonly Polygon[]): void {
+    this.renderer.terrain.setTerrain(terrain, this.mapW, this.mapH);
+    this.setOutlines(terrain);
+    this.minimap.setMap(terrain, this.buildingsCache, this.mapW, this.mapH);
+    this.editor.setMapData(terrain, this.buildingsCache);
+  }
+
+  private wireEditorPanel(): void {
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#editor [data-tool]')) {
+      b.addEventListener('click', () => this.editor.setTool(b.dataset.tool as EditorTool));
+    }
+    const on = (id: string, fn: () => void): void => document.getElementById(id)?.addEventListener('click', fn);
+    on('ed-undo', () => this.editor.undo());
+    on('ed-redo', () => this.editor.redo());
+    on('ed-export', () => this.host.requestMapJson());
+    const file = document.getElementById('ed-file') as HTMLInputElement | null;
+    on('ed-import', () => file?.click());
+    file?.addEventListener('change', async () => {
+      const f = file.files?.[0];
+      if (!f) return;
+      const text = await f.text();
+      try {
+        parseMap(text);
+        sessionStorage.setItem(CUSTOM_MAP_KEY, text);
+        const q = new URLSearchParams(location.search);
+        q.set('map', 'custom');
+        location.search = q.toString();
+      } catch (err) {
+        this.showToast(`Invalid map: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+    this.syncEditorPanel();
+  }
+
+  private syncEditorPanel(): void {
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#editor [data-tool]')) {
+      b.classList.toggle('on', b.dataset.tool === this.editor.tool);
+    }
+    const undo = document.getElementById('ed-undo') as HTMLButtonElement | null;
+    const redo = document.getElementById('ed-redo') as HTMLButtonElement | null;
+    if (undo) undo.disabled = !this.editor.canUndo;
+    if (redo) redo.disabled = !this.editor.canRedo;
+    const hint = document.getElementById('ed-hint');
+    if (hint) hint.textContent = this.editor.hint;
+  }
 
   /** Centers the camera on the centroid of the given units (control-group double tap). */
   private centerOnHandles(handles: readonly number[]): void {
@@ -174,6 +259,8 @@ export class App {
     this.mapH = mapH;
     const up = this.renderer.setMap(map, mapW, mapH);
     this.minimap.setMap(map.terrain, map.buildings, mapW, mapH);
+    this.editor.setMapData(map.terrain, map.buildings);
+    this.buildingsCache = map.buildings;
     const st = map.stats;
     this.mapInfo = `${map.name} · ${st.terrainPolygons} rock polys / ${st.terrainVertices} verts · ${st.buildings} buildings · gen ${st.totalMs.toFixed(0)} ms · gpu upload ${up.ms.toFixed(0)} ms`;
     const cam = this.renderer.camera;
@@ -184,10 +271,7 @@ export class App {
     const border = this.renderer.lines.batch(8);
     border.polyline([0, 0, mapW, 0, mapW, mapH, 0, mapH], true, rgba(120, 132, 150, 200), 2);
     this.underLines.push(border);
-    // Crisp rock outlines on top of the distance-field shading.
-    const outlines = this.renderer.lines.batch(st.terrainVertices + 16);
-    for (const p of map.terrain) for (const r of p.rings) outlines.polyline(r, true, rgba(150, 165, 190, 110), 1.1);
-    this.underLines.push(outlines);
+    this.setOutlines(map.terrain);
 
     this.lastFrame = performance.now();
     requestAnimationFrame(this.frame);
@@ -233,6 +317,7 @@ export class App {
         this.pathOverlay.update(a, b, alpha);
         this.markers.update(now, this.renderer.camera.zoom);
         this.fieldOverlay.update(now);
+        this.editor.update();
         this.minimap.update(now, b.views, this.selection.flags);
         this.panel.update(b.views, this.selection.handles, this.groups);
         if (now - this.lastPrune > 2000) {
@@ -314,7 +399,8 @@ export class App {
         this.el.hud.parentElement?.classList.toggle('hidden');
         break;
       case 'Escape':
-        if (this.commands.mode !== 'none') this.commands.setMode('none');
+        if (this.editor.active) this.editor.cancel();
+        else if (this.commands.mode !== 'none') this.commands.setMode('none');
         else this.selection.clear();
         break;
       case 'KeyM':
@@ -345,6 +431,7 @@ export class App {
         break;
       case 'Delete':
       case 'Backspace':
+        if (this.editor.active && this.editor.popVertex()) break;
         if (this.selection.handles.size > 0) {
           this.host.command({ kind: 'despawn', handles: Int32Array.from(this.selection.handles) });
           this.selection.clear();
@@ -366,31 +453,45 @@ export class App {
         e.preventDefault();
         this.fieldOverlay.toggle();
         break;
-      case 'KeyB': {
-        if (this.pointerX < 0) break;
-        const sizes: [number, number][] = [[2, 2], [3, 3], [4, 3], [5, 5], [6, 6], [8, 2]];
-        if (e.shiftKey) {
-          this.buildSize = (this.buildSize + 1) % sizes.length;
-          this.showToast(`Building size ${sizes[this.buildSize][0]}×${sizes[this.buildSize][1]}`);
-          break;
-        }
-        const cam = this.renderer.camera;
-        const [w, h] = sizes[this.buildSize];
-        this.host.command({ kind: 'placeBuilding', x: cam.screenToWorldX(this.pointerX), y: cam.screenToWorldY(this.pointerY), w, h, faction: Faction.Player, type: 'barracks' });
+      case 'KeyB':
+        this.editor.setTool('building');
         break;
-      }
+      case 'KeyR':
+        this.editor.setTool('rock');
+        break;
+      case 'KeyT':
+        this.editor.setTool('carve');
+        break;
+      case 'KeyG':
+        this.editor.setTool('brushAdd');
+        break;
+      case 'KeyC':
+        this.editor.setTool('brushCarve');
+        break;
+      case 'KeyQ':
+      case 'KeyE':
+        this.editor.resize(e.code === 'KeyE' ? 1 : -1);
+        break;
+      case 'KeyZ':
+      case 'KeyY':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          if (e.code === 'KeyY' || e.shiftKey) this.editor.redo();
+          else this.editor.undo();
+        }
+        break;
+      case 'Enter':
+        this.editor.finishPolygon();
+        break;
       case 'KeyS':
       case 'KeyH':
         if (this.selection.handles.size > 0) {
           this.host.command({ kind: e.code === 'KeyS' ? 'stop' : 'hold', handles: Int32Array.from(this.selection.handles) });
         }
         break;
-      case 'KeyX': {
-        if (this.pointerX < 0) break;
-        const cam = this.renderer.camera;
-        this.host.command({ kind: 'removeBuildingAt', x: cam.screenToWorldX(this.pointerX), y: cam.screenToWorldY(this.pointerY) });
+      case 'KeyX':
+        this.editor.setTool('erase');
         break;
-      }
     }
   };
 }

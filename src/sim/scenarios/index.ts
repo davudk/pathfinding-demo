@@ -14,7 +14,7 @@ export interface ScriptedCommand {
   readonly cmd: SimCommand;
 }
 
-export const SCENARIOS = ['stress', 'choke', 'holdline', 'cross', 'blob'] as const;
+export const SCENARIOS = ['stress', 'choke', 'holdline', 'cross', 'blob', 'drop'] as const;
 export type ScenarioName = (typeof SCENARIOS)[number];
 
 /** Spawns `count` units of an archetype in a jittered grid filling the rect; returns handles. */
@@ -82,6 +82,13 @@ export function setupScenario(world: World, name: string, units: number): Script
         ...block(world, ArchetypeId.Behemoth, Faction.Player, 100, 96, 136, 108, 4),
       ];
       move(30, hs, 110, 60);
+      break;
+    }
+    case 'drop': {
+      // A column marches east; two seconds in, a 6×6 building lands on it.
+      const col = block(world, ArchetypeId.Trooper, Faction.Player, 26, 116, 76, 124, 100);
+      move(30, col, 132, 120);
+      script.push({ tick: 90, cmd: { kind: 'placeBuilding', def: { id: 'drop', faction: Faction.Neutral, type: 'hall', center: [70, 120], size: [6, 6], rot: 0 } } });
       break;
     }
     default:

@@ -6,14 +6,17 @@ import { Occupancy } from './occupancy';
 
 /** The loaded, normalized map the simulation runs on. */
 export interface WorldMap {
-  readonly data: MapData;
+  /** Source map (terrain shapes are replaced by terrain edits). */
+  data: MapData;
   readonly width: number;
   readonly height: number;
-  readonly terrain: Polygon[];
+  /** Point inside the main walkable region (keeps pocket filling stable across edits). */
+  readonly mainPoint: readonly [number, number] | undefined;
+  terrain: Polygon[];
   /** Live buildings and their footprints (parallel arrays; mutated by building edits). */
   readonly buildings: BuildingDef[];
   readonly buildingRings: Float64Array[];
-  readonly placement: PlacementChecker;
+  placement: PlacementChecker;
   readonly occupancy: Occupancy;
   readonly stats: MapRenderData['stats'];
 }
@@ -34,6 +37,7 @@ export function loadWorldMap(data: MapData, mainPoint?: readonly [number, number
     data,
     width: W,
     height: H,
+    mainPoint,
     terrain: norm.polygons,
     buildings: check.accepted,
     buildingRings,

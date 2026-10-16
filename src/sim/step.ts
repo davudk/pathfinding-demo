@@ -3,7 +3,7 @@ import type { SimCommand } from '../shared/protocol';
 import { spawnRandomUnits } from './scenarios/stress';
 import { issueMove, issueStop } from './move/orders';
 import { detachField, updateFieldFollowers } from './move/fieldFollow';
-import { placeBuilding, removeBuildingAt } from './edit';
+import { editTerrain, placeBuilding, removeBuilding, snapBuildingCenter } from './edit';
 import type { World } from './world';
 
 function applyCommand(world: World, cmd: SimCommand): void {
@@ -14,11 +14,20 @@ function applyCommand(world: World, cmd: SimCommand): void {
     case 'despawn':
       for (const h of cmd.handles) world.units.despawn(h);
       break;
-    case 'placeBuilding':
-      placeBuilding(world, cmd.x, cmd.y, cmd.w, cmd.h, cmd.faction, cmd.type);
+    case 'placeBuilding': {
+      const d = cmd.def;
+      const [cx, cy] = snapBuildingCenter(d.center[0], d.center[1], d.size[0], d.size[1]);
+      placeBuilding(world, { ...d, center: [cx, cy] });
       break;
-    case 'removeBuildingAt':
-      removeBuildingAt(world, cmd.x, cmd.y);
+    }
+    case 'removeBuilding':
+      if (!removeBuilding(world, cmd.id)) world.events.push({ type: 'editRejected', id: cmd.id });
+      break;
+    case 'addTerrain':
+      if (editTerrain(world, { add: cmd.shape })) world.events.push({ type: 'editRejected', id: cmd.shape.id });
+      break;
+    case 'removeTerrain':
+      if (editTerrain(world, { removeId: cmd.id })) world.events.push({ type: 'editRejected', id: cmd.id });
       break;
     case 'move':
       issueMove(world, cmd.handles, cmd.x, cmd.y, cmd.queue === true);
