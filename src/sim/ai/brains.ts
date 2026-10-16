@@ -23,7 +23,7 @@ export type Brain = (typeof Brain)[keyof typeof Brain];
 /** After a player order finishes, the brain stays quiet this long before taking over again. */
 const SUSPEND_TICKS = 300;
 /** Cap on brain-issued orders per tick (keeps the low-priority path queue sane). */
-const ORDERS_PER_TICK = 80;
+const ORDERS_PER_TICK = 40;
 
 interface Herd {
   leader: number;

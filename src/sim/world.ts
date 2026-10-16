@@ -11,10 +11,11 @@ import { FieldRegistry } from './nav/field';
 import { OrderQueues, Orders } from './move/orders';
 import { Locomotion } from './move/locomotion';
 import { Brains } from './ai/brains';
+import { defaultTuning, type Tuning } from '../shared/tuning';
 import { UnitGrid } from './spatial/grid';
 import { WallGrid } from './spatial/wallGrid';
 import { UnitStore } from './store/units';
-import { setupScenario, type ScriptedCommand } from './scenarios';
+import { setupScenario, type ScenarioSetup, type ScriptedCommand } from './scenarios';
 
 export interface World {
   tick: number;
@@ -33,8 +34,12 @@ export interface World {
   readonly walls: WallGrid;
   readonly locomotion: Locomotion;
   readonly brains: Brains;
+  readonly tuning: Tuning;
   /** Scenario commands waiting for their tick. */
   script: ScriptedCommand[];
+  /** Scenario camera focus and initial client selection. */
+  focus: ScenarioSetup['focus'];
+  initialSelect: number[];
   /** Messages for the main thread, flushed by the runner after each tick. */
   readonly events: FromSim[];
   readonly prof: Profiler;
@@ -67,12 +72,18 @@ export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World
     walls: new WallGrid(map.width, map.height),
     locomotion: new Locomotion(capacity),
     brains: new Brains(capacity),
+    tuning: defaultTuning(),
     script: [],
+    focus: null,
+    initialSelect: [],
     events: [],
     prof: new Profiler(SIM_SYSTEM_NAMES, 120),
   };
   world.walls.rebuild(nav);
-  world.script = setupScenario(world, scene.name, scene.units);
+  const setup = setupScenario(world, scene.name, scene.units);
+  world.script = setup.script;
+  world.focus = setup.focus;
+  world.initialSelect = setup.select;
   return world;
 }
 

@@ -23,7 +23,8 @@ port.onmessage = (ev) => {
           sink = transferSink;
         }
         runner = new SimRunner(msg.scene, sink, (m, transfer) => port.postMessage(m, transfer ?? []));
-        port.postMessage({ type: 'ready', mapW: runner.world.mapW, mapH: runner.world.mapH, map: mapRenderData(runner.world.map) });
+        const w = runner.world;
+        port.postMessage({ type: 'ready', mapW: w.mapW, mapH: w.mapH, map: mapRenderData(w.map), focus: w.focus, select: w.initialSelect });
         runner.start();
         break;
       }

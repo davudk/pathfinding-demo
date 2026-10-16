@@ -26,6 +26,9 @@ function applyCommand(world: World, cmd: SimCommand): void {
     case 'addTerrain':
       if (editTerrain(world, { add: cmd.shape })) world.events.push({ type: 'editRejected', id: cmd.shape.id });
       break;
+    case 'tune':
+      if (cmd.key in world.tuning) world.tuning[cmd.key] = cmd.value;
+      break;
     case 'removeTerrain':
       if (editTerrain(world, { removeId: cmd.id })) world.events.push({ type: 'editRejected', id: cmd.id });
       break;
@@ -45,7 +48,7 @@ function applyCommand(world: World, cmd: SimCommand): void {
 }
 
 /** Path search work per tick, in A* node expansions (≈ 3–4 ms in the worker). */
-const PATH_BUDGET_EXPANSIONS = 12_000;
+const PATH_BUDGET_EXPANSIONS = 9_000;
 /** Destination-field work per tick, in settled triangles (player group orders go first). */
 const FIELD_BUDGET = 24_000;
 
@@ -74,7 +77,9 @@ export function step(world: World, commands: readonly SimCommand[]): void {
   p.end(SimSys.Path);
 
   p.begin(SimSys.Move);
+  p.begin(SimSys.Follow);
   updateFieldFollowers(world);
+  p.end(SimSys.Follow);
   world.locomotion.step(world);
   p.end(SimSys.Move);
 

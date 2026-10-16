@@ -57,6 +57,7 @@ interface Request {
   gx: number;
   gy: number;
   seq: number;
+  priority: number;
 }
 
 export interface PathStats {
@@ -69,6 +70,8 @@ export interface PathStats {
 /** Request priorities: player orders are served before ambient AI. */
 export const PRIORITY_PLAYER = 0;
 export const PRIORITY_AI = 1;
+/** Share of the per-tick path budget ambient AI may use. */
+const AI_SHARE = 0.25;
 
 class Fifo {
   items: Request[] = [];
@@ -107,7 +110,7 @@ export class PathQueue {
     const seq = this.seq++;
     this.latest[slot] = seq;
     this.paths.pending[slot] = 1;
-    this.queues[priority].push({ handle, gx, gy, seq });
+    this.queues[priority].push({ handle, gx, gy, seq, priority });
   }
 
   cancel(slot: number): void {
@@ -129,13 +132,22 @@ export class PathQueue {
     let served = 0;
     let expansions = 0;
     let aiServed = 0;
+    let aiExpansions = 0;
+    const aiBudget = budgetExpansions * AI_SHARE;
     for (;;) {
       if (served > 0 && expansions >= budgetExpansions) break;
-      // Player requests first; ambient AI gets the rest (and at least one per tick, so it never starves).
-      const q = this.queues[0].size > 0 && !(aiServed === 0 && expansions > budgetExpansions * 0.8 && this.queues[1].size > 0) ? this.queues[0] : this.queues[1];
+      // Player requests first; ambient AI gets at most AI_SHARE of the budget (and at least one
+      // request per tick, so it never starves) — this keeps AI bursts from spiking tick time.
+      const aiTurn = this.queues[0].size === 0 || (aiServed === 0 && expansions > budgetExpansions * 0.8);
+      if (aiTurn && (this.queues[1].size === 0 || (aiServed > 0 && aiExpansions >= aiBudget))) {
+        if (this.queues[0].size === 0) break;
+      }
+      const useAi = aiTurn && this.queues[1].size > 0 && (aiServed === 0 || aiExpansions < aiBudget);
+      const q = useAi ? this.queues[1] : this.queues[0];
       if (q.size === 0) break;
       const req = q.shift();
-      if (q === this.queues[1]) aiServed++;
+      if (useAi) aiServed++;
+      const before = expansions;
       const slot = handleIndex(req.handle);
       if (this.latest[slot] !== req.seq || !units.isValid(req.handle)) continue;
       this.latest[slot] = -1;
@@ -149,9 +161,10 @@ export class PathQueue {
         onDone(slot, false);
         continue;
       }
-      const res = this.search.find({ sx: start[0], sy: start[1], gx: goal[0], gy: goal[1], r });
+      const res = this.search.find({ sx: start[0], sy: start[1], gx: goal[0], gy: goal[1], r, quick: req.priority === PRIORITY_AI });
       // Count at least a nominal cost per request so trivial queries can't flood a tick.
       expansions += Math.max(64, this.search.lastExpansions);
+      if (useAi) aiExpansions += expansions - before;
       if (!res) {
         this.paths.set(slot, null, false);
         onDone(slot, false);

@@ -10,6 +10,7 @@
 import { UNIT_CAPACITY } from './constants';
 import type { Polygon } from './geometry';
 import type { BuildingDef, TerrainShape, ZoneDef } from './mapFormat';
+import type { TuningKey } from './tuning';
 
 // ── Header (int32 / float32 words) ────────────────────────────────────────────
 export const SNAP_HEADER_WORDS = 64;
@@ -125,6 +126,7 @@ export type SimCommand =
   | { readonly kind: 'removeBuilding'; readonly id: string }
   | { readonly kind: 'addTerrain'; readonly shape: TerrainShape }
   | { readonly kind: 'removeTerrain'; readonly id: string }
+  | { readonly kind: 'tune'; readonly key: TuningKey; readonly value: number }
   | { readonly kind: 'move'; readonly handles: Int32Array; readonly x: number; readonly y: number; readonly queue?: boolean }
   | { readonly kind: 'patrol'; readonly handles: Int32Array; readonly x: number; readonly y: number; readonly queue?: boolean }
   | { readonly kind: 'stop'; readonly handles: Int32Array }
@@ -172,7 +174,11 @@ export type ToSim =
   | { readonly type: 'exportMap' };
 
 export type FromSim =
-  | { readonly type: 'ready'; readonly mapW: number; readonly mapH: number; readonly map: MapRenderData }
+  | {
+      readonly type: 'ready'; readonly mapW: number; readonly mapH: number; readonly map: MapRenderData;
+      readonly focus: { readonly x: number; readonly y: number; readonly zoom: number } | null;
+      readonly select: readonly number[];
+    }
   | { readonly type: 'snapshot'; readonly tick: number; readonly buffer: ArrayBuffer }
   | { readonly type: 'buildings'; readonly buildings: readonly BuildingDef[] }
   | { readonly type: 'terrain'; readonly terrain: readonly Polygon[] }

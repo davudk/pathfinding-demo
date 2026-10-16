@@ -15,31 +15,47 @@
 import { SIM_DT } from '../../shared/constants';
 import { MAX_UNIT_RADIUS } from '../../shared/archetypes';
 import { turnToward } from '../../shared/math';
-import { MoveState } from '../store/units';
+import { MoveState, UNIT_FLAG_PLAYER } from '../store/units';
 import { SimSys } from '../../shared/profiler';
+import type { Tuning } from '../../shared/tuning';
 import type { World } from '../world';
 import { arrive } from './orders';
 import { planDetour } from './detour';
 
-// ── Tuning (docs/research/02, §7) ────────────────────────────────────────────
-const AVOID_HORIZON = 0.8; // s
-const AVOID_LOOKAHEAD_MAX = 3; // world units
-const W_SEP = 0.6;
-const W_AVOID = 1.0;
-const SIDE_HOLD_TICKS = 15; // 0.5 s
-const IDLE_DAMP_TAU = 0.1; // s
-const CONTACT_ITERS = 4;
-const STIFFNESS = 0.8;
-const OMEGA = 1.3;
-const SLACK_FRAC = 0.03; // allowed soft overlap, fraction of the smaller radius
+// ── Tuning (docs/research/02, §7) — live values come from world.tuning each tick ──
+let AVOID_HORIZON = 0.8; // s
+let AVOID_LOOKAHEAD_MAX = 3; // world units
+let W_SEP = 0.6;
+let W_AVOID = 1.0;
+let SIDE_HOLD_TICKS = 15; // 0.5 s
+let KEEP_RIGHT = true;
+let IDLE_DAMP_TAU = 0.1; // s
+let CONTACT_ITERS = 4;
+let STIFFNESS = 0.8;
+let OMEGA = 1.3;
+let SLACK_FRAC = 0.03; // allowed soft overlap, fraction of the smaller radius
+let FLEE_RADIUS = 2.5;
+
+function syncTuning(t: Tuning): void {
+  AVOID_HORIZON = t.avoidHorizon;
+  AVOID_LOOKAHEAD_MAX = t.avoidLookahead;
+  W_SEP = t.wSep;
+  W_AVOID = t.wAvoid;
+  SIDE_HOLD_TICKS = t.sideHoldTicks;
+  KEEP_RIGHT = t.keepRight >= 0.5;
+  IDLE_DAMP_TAU = t.idleDampTau;
+  CONTACT_ITERS = Math.round(t.contactIters);
+  STIFFNESS = t.stiffness;
+  OMEGA = t.omega;
+  SLACK_FRAC = t.slackFrac;
+  FLEE_RADIUS = t.fleeRadius;
+}
 const SETTLE_TICKS = 8; // Arrived → Idle
 const STUCK_WINDOW = 45; // ticks (1.5 s)
 const STUCK_FRACTION = 0.12; // of expected travel
 const STALL_WINDOW = 15; // ticks (0.5 s) for blocked-progress arrival
 const SQUEEZE_TICKS = 30;
 const SQUEEZE_BONUS = 15;
-/** Neutral units start yielding when an army unit comes this close (beyond both radii). */
-const FLEE_RADIUS = 2.5;
 const NEUTRAL = 4;
 /** Per-tick displacement below which a resting unit doesn't inherit momentum (0.9 u/s). */
 const SHOVE_MIN = 0.03;
@@ -67,6 +83,17 @@ export class Locomotion {
   private readonly stallDist: Float64Array;
   /** Tick a unit last touched a moving group-mate (congestion, not stuck). */
   private readonly crowdTick: Int32Array;
+  /** Steering cache for the staggered neighbour scan. */
+  private readonly scanTick: Int32Array;
+  private readonly sepCX: Float32Array;
+  private readonly sepCY: Float32Array;
+  private readonly bestC: Int32Array;
+  private readonly bestWC: Float32Array;
+  /** 1 when contacts or the displacement cap moved the unit this tick (needs a final wall check). */
+  private readonly corrected: Uint8Array;
+  private readonly fleeTick: Int32Array;
+  private readonly fleeCX: Float32Array;
+  private readonly fleeCY: Float32Array;
   private pairI = new Int32Array(1 << 14);
   private pairJ = new Int32Array(1 << 14);
   private pairCount = 0;
@@ -89,6 +116,15 @@ export class Locomotion {
     this.wallNY = new Float64Array(capacity);
     this.stallDist = new Float64Array(capacity).fill(Infinity);
     this.crowdTick = new Int32Array(capacity).fill(-1000);
+    this.scanTick = new Int32Array(capacity).fill(-1000);
+    this.sepCX = new Float32Array(capacity);
+    this.sepCY = new Float32Array(capacity);
+    this.bestC = new Int32Array(capacity).fill(-1);
+    this.bestWC = new Float32Array(capacity);
+    this.corrected = new Uint8Array(capacity);
+    this.fleeTick = new Int32Array(capacity).fill(-1000);
+    this.fleeCX = new Float32Array(capacity);
+    this.fleeCY = new Float32Array(capacity);
   }
 
   step(world: World): void {
@@ -104,6 +140,7 @@ export class Locomotion {
       this.oldX[i] = u.posX[i];
       this.oldY[i] = u.posY[i];
     }
+    syncTuning(world.tuning);
     const p = world.prof;
     p.begin(SimSys.Follow);
     this.preferred(world);
@@ -120,7 +157,9 @@ export class Locomotion {
     this.solveContacts(world);
     this.finishVelocities(world);
     p.end(SimSys.Contacts);
+    p.begin(SimSys.Arrive);
     this.arrivalAndStuck(world);
+    p.end(SimSys.Arrive);
   }
 
   // ── 1. Preferred velocity ──────────────────────────────────────────────────
@@ -245,7 +284,24 @@ export class Locomotion {
       let sepX = 0, sepY = 0;
       let bestT = AVOID_HORIZON, best = -1, bestW = 0;
       const sepMargin = 0.25 * r + 0.1;
-      for (let cy = rg[1]; cy <= rg[3]; cy++) {
+      // Neighbour scan runs for half the units each tick (by slot parity); in between, reuse the
+      // cached separation and re-time the cached threat. Effectively 15 Hz steering, invisible
+      // at this tick rate, for half the cost.
+      const scan = ((i + tick) & 1) === 0 || tick - this.scanTick[i] > 1;
+      if (!scan) {
+        sepX = this.sepCX[i];
+        sepY = this.sepCY[i];
+        const j = this.bestC[i];
+        if (j >= 0 && u.alive[j]) {
+          const t = timeToCollision(posX[j] - x, posY[j] - y, vx - velX[j], vy - velY[j], r + rad[j] + 0.1);
+          if (t >= 0 && t < bestT) {
+            bestT = t;
+            best = j;
+            bestW = this.bestWC[i];
+          }
+        }
+      }
+      if (scan) for (let cy = rg[1]; cy <= rg[3]; cy++) {
         const row = cy * cols;
         for (let cx = rg[0]; cx <= rg[2]; cx++) {
           const c = row + cx;
@@ -280,6 +336,13 @@ export class Locomotion {
           }
         }
       }
+      if (scan) {
+        this.scanTick[i] = tick;
+        this.sepCX[i] = sepX;
+        this.sepCY[i] = sepY;
+        this.bestC[i] = best;
+        this.bestWC[i] = bestW;
+      }
       let dvx = pvx + W_SEP * sepX * maxS;
       let dvy = pvy + W_SEP * sepY * maxS;
       if (faction[i] === NEUTRAL && this.flee(world, i)) {
@@ -292,7 +355,15 @@ export class Locomotion {
         let side = u.avoidSide[i];
         if (side === 0 || tick >= u.avoidUntil[i]) {
           const cr = fx * dy - fy * dx; // > 0: obstacle on our left (formula sense)
-          side = cr > 0 ? -1 : cr < 0 ? 1 : i < best ? 1 : -1;
+          const dl = Math.hypot(dx, dy) || 1;
+          const oncoming = state[best] === S_MOVING && fx * velX[best] + fy * velY[best] < -0.3 * maxS;
+          if (KEEP_RIGHT && oncoming && Math.abs(cr) / dl < 0.6) {
+            // Traffic rule: oncoming movers both dodge right, so crossing groups form lanes
+            // instead of knotting in the middle.
+            side = -1;
+          } else {
+            side = cr > 0 ? -1 : cr < 0 ? 1 : i < best ? 1 : -1;
+          }
           u.avoidSide[i] = side;
           u.avoidUntil[i] = tick + SIDE_HOLD_TICKS;
         }
@@ -334,6 +405,20 @@ export class Locomotion {
    * moving units that come within a short radius. Writes the unit-length direction to fleeX/Y.
    */
   private flee(world: World, i: number): boolean {
+    // Staggered like steering: scan on alternate ticks, reuse the cached direction in between.
+    if (((i + world.tick) & 1) === 1 && world.tick - this.fleeTick[i] <= 1) {
+      this.fleeX = this.fleeCX[i];
+      this.fleeY = this.fleeCY[i];
+      return this.fleeX !== 0 || this.fleeY !== 0;
+    }
+    const hit = this.fleeScan(world, i);
+    this.fleeTick[i] = world.tick;
+    this.fleeCX[i] = hit ? this.fleeX : 0;
+    this.fleeCY[i] = hit ? this.fleeY : 0;
+    return hit;
+  }
+
+  private fleeScan(world: World, i: number): boolean {
     const { units: u, grid } = world;
     const x = u.posX[i], y = u.posY[i];
     const R = u.radius[i] + FLEE_RADIUS;
@@ -538,6 +623,7 @@ export class Locomotion {
           accX[i] = 0;
           accY[i] = 0;
           cnt[i] = 0;
+          this.corrected[i] = 1;
           if (walls.resolve(x, y, u.radius[i], t)) {
             u.posX[i] = t[0];
             u.posY[i] = t[1];
@@ -590,11 +676,14 @@ export class Locomotion {
         dx = nx - this.oldX[i];
         dy = ny - this.oldY[i];
       }
-      // Final safety pass: anything that moved ends outside walls and inside the map.
+      // Final safety pass: anything contacts moved ends outside walls; everything stays in the map.
+      // (Units moved only by integration were already wall-resolved there.)
       if (dx !== 0 || dy !== 0) {
         const r = u.radius[i];
         let fx = u.posX[i], fy = u.posY[i];
-        if (world.walls.resolve(fx, fy, r, this.tmp)) {
+        const check = this.corrected[i] === 1;
+        this.corrected[i] = 0;
+        if (check && world.walls.resolve(fx, fy, r, this.tmp)) {
           fx = this.tmp[0];
           fy = this.tmp[1];
           this.wallNX[i] = this.tmp[2];
@@ -675,6 +764,17 @@ export class Locomotion {
           // Waiting in line behind group-mates: squeeze a little, but never escalate.
           u.squeezeUntil[i] = tick + SQUEEZE_TICKS;
           u.stuckStage[i] = 0;
+        } else if (moved < STUCK_FRACTION * expected && (u.flags[i] & UNIT_FLAG_PLAYER) === 0) {
+          // Ambient units don't need heroic detours: squeeze once, then give up — their brain
+          // simply picks another destination.
+          if (u.stuckStage[i] === 0) {
+            u.stuckStage[i] = 1;
+            u.squeezeUntil[i] = tick + SQUEEZE_TICKS;
+          } else {
+            this.gaveUp++;
+            arrive(world, i);
+            continue;
+          }
         } else if (moved < STUCK_FRACTION * expected) {
           const stage = u.stuckStage[i] + 1;
           const wantsDetour = stage === 1 || stage === 3;

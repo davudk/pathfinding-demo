@@ -139,11 +139,20 @@ export class BuildingsPass {
     gl.bindVertexArray(null);
   }
 
+  private palette: readonly (readonly [number, number, number])[] = FACTION_COLORS;
+  private last: readonly BuildingDef[] = [];
+
+  setPalette(colors: readonly (readonly [number, number, number])[]): void {
+    this.palette = colors;
+    this.setBuildings(this.last);
+  }
+
   setBuildings(list: readonly BuildingDef[]): void {
+    this.last = list;
     const data = new Float32Array(list.length * FLOATS);
     list.forEach((b, i) => {
       const o = i * FLOATS;
-      const col = FACTION_COLORS[b.faction] ?? FACTION_COLORS[4];
+      const col = this.palette[b.faction] ?? this.palette[4];
       const type = Math.max(0, BUILDING_TYPES.indexOf(b.type as (typeof BUILDING_TYPES)[number]));
       data.set([b.center[0], b.center[1], b.size[0] / 2, b.size[1] / 2, b.rot, type, col[0], col[1], col[2]], o);
     });

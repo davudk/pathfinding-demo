@@ -6,6 +6,12 @@ import type { ControlGroups } from '../input/controlGroups';
 /** Bottom-center panel: selection summary by unit type, and the control-group bar. */
 export class SelectionPanel {
   private lastKey = '';
+  private palette: readonly (readonly [number, number, number])[] = FACTION_COLORS;
+
+  setPalette(colors: readonly (readonly [number, number, number])[]): void {
+    this.palette = colors;
+    this.lastKey = ''; // force a redraw
+  }
   private lastGroups = -1;
 
   constructor(private readonly summary: HTMLElement, private readonly bar: HTMLElement) {}
@@ -44,7 +50,7 @@ export class SelectionPanel {
     this.summary.replaceChildren(
       ...sorted.map(([k, n]) => {
         const fac = k >> 4, arch = k & 15;
-        const [r, g, b] = FACTION_COLORS[fac] ?? FACTION_COLORS[4];
+        const [r, g, b] = this.palette[fac] ?? this.palette[4];
         const el = document.createElement('div');
         el.className = 'sel-item';
         el.title = `${FACTION_NAMES[fac]} ${ARCHETYPES[arch].name}`;

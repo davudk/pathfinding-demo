@@ -22,6 +22,7 @@
     "clipper2-ts": "^2.0.1-18",
     "delaunator": "^5.1.0",
     "earcut": "^3.2.4",
+    "lil-gui": "^0.21.0",
     "robust-predicates": "^3.0.3",
     "simplex-noise": "^4.0.3"
   }

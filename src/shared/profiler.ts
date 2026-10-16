@@ -71,5 +71,6 @@ export const SimSys = {
   Contacts: 6,
   Grid: 7,
   Follow: 8,
+  Arrive: 9,
 } as const;
-export const SIM_SYSTEM_NAMES: readonly string[] = ['commands', 'path', 'move', 'snapshot', 'total', 'steer', 'contacts', 'grid', 'follow'];
+export const SIM_SYSTEM_NAMES: readonly string[] = ['commands', 'path', 'move', 'snapshot', 'total', 'steer', 'contacts', 'grid', 'follow', 'arrive'];

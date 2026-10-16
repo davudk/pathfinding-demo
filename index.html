@@ -36,6 +36,7 @@
         <dt>F2</dt><dd>Navmesh overlay</dd>
         <dt>F3</dt><dd>Cycle radius class (region colors)</dd>
         <dt>F4</dt><dd>Destination-field flow arrows</dd>
+        <dt>F5</dt><dd>Tuning panel (steering, contacts, display, colour-blind palette)</dd>
         <dt>`</dt><dd>Toggle stats</dd>
         <dt>F1</dt><dd>Toggle this help</dd>
       </dl>
@@ -43,6 +44,9 @@
     <div id="hint">F1 — controls</div>
     <div id="toast"></div>
     <div id="editor">
+      <div class="ed-title">Scenario</div>
+      <select id="scene-pick" title="Load a scenario"></select>
+      <div id="scene-about"></div>
       <div class="ed-title">Editor</div>
       <div class="ed-row">
         <button data-tool="building" title="Place building (B)">▣ Building</button>
@@ -72,6 +76,7 @@
       <div id="group-bar"></div>
       <div id="sel-summary" class="hidden"></div>
     </div>
+    <div id="bench-result" class="hidden"></div>
     <div id="fatal" class="hidden"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

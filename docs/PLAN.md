@@ -423,3 +423,19 @@ Execution plan:
   - 2000 units over 60 s: 96% of wanderers move, the path backlog stays ≤ 8, wall penetration is 0, and herds stay within a median of 1.7× their radius.
   - 10k units in the production build: sim p50 9.6 ms, p95 13 ms per tick. The dev server is about 2× slower.
 - **Profiler:** per-stage timings (follow, steer, grid, contacts) are now shown in the HUD.
+
+**M9 — scenarios, polish, performance**
+- **Scenarios:** 12 in a picker, each with a camera focus and a pre-selected featured group so order lines show immediately: ambient world, choke, holdline, cross, blob, drop, size-mix canyon, maze, concave trap, town crossing, shift-queue and patrol, empty. Smoke tests cover the new ones: the trap pocket is reached by going around the U, and no unit with r > 0.625 ever routes through the canyon's 1.5-wide throat.
+- **Keep-right lanes.** When the threat is an oncoming mover roughly dead ahead, both units dodge right. Crossing armies stream past each other diagonally instead of knotting (cross settles in 37.7 s, down from 41 s).
+- **Tuning panel (F5):** lil-gui sliders for steering and contact parameters. Changes are sent as deterministic `tune` commands, so tuned runs still replay. Display options: colour-blind palette (units, buildings, minimap, panel), order lines, screen-edge pan, stats.
+- **`?bench=N`** benchmark mode.
+- **Performance work** (production build, 10k ambient world). The sim went from p50 11.5 / p95 15.8 ms to **p50 8.6 / p95 11.0 ms**:
+  - The steering neighbor scan runs for half the units per tick (by slot parity), reusing cached separation and the re-timed cached threat in between. This also applies to critter flee scans.
+  - The final wall pass only re-checks units that contacts or the displacement cap moved.
+  - Ambient AI paths are "quick": the first funnelled corridor, without clearance repair, validation or anytime refinement. AI also gets at most 25% of the path budget, which is now 9k expansions per tick. Player paths are unchanged.
+  - Stuck ambient units squeeze once and then give up, and their brain picks another destination. There are no detour searches for AI; these had been about 2 grid-detour plans per tick.
+- **Known limitations / next steps:**
+  - Lanes form diagonally rather than as clean parallel streams.
+  - The detour planner's static-obstacle marking is per cell (could reuse the occupancy raster directly).
+  - Terrain edits rebuild the whole navmesh, taking 60–100 ms.
+  - A WebGPU renderer backend and WASM kernels remain options if more headroom is needed.

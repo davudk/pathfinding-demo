@@ -29,6 +29,11 @@ export interface PathQuery {
   r: number;
   /** Max node expansions (safety cap). */
   maxExpansions?: number;
+  /**
+   * Cheap path (ambient AI): the first funnelled corridor, without clearance repair,
+   * validation or anytime refinement. Locomotion's wall handling keeps units safe.
+   */
+  quick?: boolean;
 }
 
 export interface PathResult extends FunnelResult {
@@ -141,9 +146,12 @@ export class PathSearch {
     // Repeated leg on an unchanged mesh: re-funnel the cached corridor with the actual endpoints.
     const key = this.cacheKey(ts, tg, r);
     const hit = this.cache.get(key);
+    const quick = q.quick === true;
     if (hit && hit.version === this.nav.version) {
-      const res = this.repair(funnel(buildCorridor(cdt, hit.chain), sx, sy, gx, gy, r, this.guardVertices(hit.chain)), r);
-      if (this.isClear(res, r)) {
+      const res = quick
+        ? funnel(buildCorridor(cdt, hit.chain), sx, sy, gx, gy, r)
+        : this.repair(funnel(buildCorridor(cdt, hit.chain), sx, sy, gx, gy, r, this.guardVertices(hit.chain)), r);
+      if (quick || this.isClear(res, r)) {
         this.cache.delete(key);
         this.cache.set(key, hit); // refresh LRU position
         this.cacheHits++;
@@ -195,11 +203,17 @@ export class PathSearch {
       if (++expansions > maxExp || expansions > budgetAfterFirst) break;
       const t = (n / 3) | 0;
       const h = Math.hypot(gx - px[n], gy - py[n]);
-      if (h < closestH && clearance(this.nav, px[n], py[n], r, this.clr).dist >= r - 1e-6) {
+      if (h < closestH && (quick || clearance(this.nav, px[n], py[n], r, this.clr).dist >= r - 1e-6)) {
         closestH = h;
         closest = n;
       }
       if (t === tg && goalFree) {
+        if (quick) {
+          bestResult = this.funnelFor(n, sx, sy, gx, gy, r, false);
+          best = bestResult.length;
+          bestNode = n;
+          break;
+        }
         const raw = this.funnelFor(n, sx, sy, gx, gy, r);
         if (raw.length < best) {
           const res = this.repair(raw, r);
@@ -254,6 +268,10 @@ export class PathSearch {
       return { points: Float64Array.of(sx, sy, sx, sy), corners: new Float64Array(0), length: 0, complete: false, clear: true, expansions, corridor: Int32Array.of(ts) };
     }
     // Unreachable: go to the reachable crossing point closest to the goal.
+    if (quick) {
+      const res = this.funnelFor(closest, sx, sy, px[closest], py[closest], r, false);
+      return { ...res, complete: false, clear: true, expansions, corridor: this.corridorTris(closest, ts) };
+    }
     const res = this.repair(this.funnelFor(closest, sx, sy, px[closest], py[closest], r), r);
     return { ...res, complete: false, clear: this.isClear(res, r), expansions, corridor: this.corridorTris(closest, ts) };
   }
@@ -425,9 +443,9 @@ export class PathSearch {
     return out;
   }
 
-  private funnelFor(end: number, sx: number, sy: number, gx: number, gy: number, r: number): FunnelResult {
+  private funnelFor(end: number, sx: number, sy: number, gx: number, gy: number, r: number, guards = true): FunnelResult {
     const chain = this.nodeChain(end);
-    return funnel(buildCorridor(this.nav.cdt, chain), sx, sy, gx, gy, r, this.guardVertices(chain));
+    return funnel(buildCorridor(this.nav.cdt, chain), sx, sy, gx, gy, r, guards ? this.guardVertices(chain) : undefined);
   }
 
   /**
@@ -444,6 +462,11 @@ export class PathSearch {
 
   private straight(q: PathQuery, t: number): PathResult {
     const cdt = this.nav.cdt;
+    if (q.quick) {
+      this.lastExpansions = 0;
+      const res = funnel(buildCorridor(cdt, []), q.sx, q.sy, q.gx, q.gy, q.r);
+      return { ...res, complete: true, clear: true, expansions: 0, corridor: Int32Array.of(t) };
+    }
     const res = this.repair(funnel(buildCorridor(cdt, []), q.sx, q.sy, q.gx, q.gy, q.r, ringVertices(cdt, new Set([t]), 2)), q.r);
     this.lastExpansions = 0;
     return { ...res, complete: true, clear: this.isClear(res, q.r), expansions: 0, corridor: Int32Array.of(t) };

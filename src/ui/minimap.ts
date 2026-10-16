@@ -15,7 +15,9 @@ export class Minimap {
   private base: ImageData | null = null;
   private frame: ImageData | null = null;
   private frame32: Uint32Array | null = null;
-  private readonly colors: Uint32Array;
+  private colors: Uint32Array;
+  private buildings: readonly BuildingDef[] = [];
+  private palette: readonly (readonly [number, number, number])[] = FACTION_COLORS;
   private px = 1;
   private mapW = 1;
   private mapH = 1;
@@ -52,8 +54,15 @@ export class Minimap {
     this.setBuildings(buildings);
   }
 
+  setPalette(colors: readonly (readonly [number, number, number])[]): void {
+    this.palette = colors;
+    this.colors = new Uint32Array(colors.map(([r, g, b]) => abgr(r * 255 * 1.1, g * 255 * 1.1, b * 255 * 1.1)));
+    this.setBuildings(this.buildings);
+  }
+
   /** Re-bakes the static layer (terrain + buildings). */
   setBuildings(buildings: readonly BuildingDef[]): void {
+    this.buildings = buildings;
     const { ctx } = this;
     const s = this.canvas.width / this.mapW;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -71,7 +80,7 @@ export class Minimap {
     }
     ctx.fill('evenodd');
     for (const b of buildings) {
-      const [cr, cg, cb] = FACTION_COLORS[b.faction] ?? FACTION_COLORS[4];
+      const [cr, cg, cb] = this.palette[b.faction] ?? this.palette[4];
       ctx.fillStyle = `rgb(${(cr * 120 + 40) | 0}, ${(cg * 120 + 40) | 0}, ${(cb * 120 + 40) | 0})`;
       ctx.fillRect(b.center[0] - b.size[0] / 2, b.center[1] - b.size[1] / 2, b.size[0], b.size[1]);
     }

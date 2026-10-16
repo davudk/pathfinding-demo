@@ -13,6 +13,8 @@ export interface SimReady {
   readonly mapW: number;
   readonly mapH: number;
   readonly map: MapRenderData;
+  readonly focus: { readonly x: number; readonly y: number; readonly zoom: number } | null;
+  readonly select: readonly number[];
 }
 
 export interface SimHost {
@@ -90,7 +92,7 @@ function createWorkerHost(scene: SceneConfig, useSab: boolean): SimHost {
       const msg = ev.data;
       switch (msg.type) {
         case 'ready':
-          resolve({ mapW: msg.mapW, mapH: msg.mapH, map: msg.map });
+          resolve({ mapW: msg.mapW, mapH: msg.mapH, map: msg.map, focus: msg.focus, select: msg.select });
           break;
         case 'snapshot':
           ring.push(msg.buffer);
@@ -145,7 +147,10 @@ function createMainThreadHost(scene: SceneConfig): SimHost {
   const host: SimHost = {
     mode: 'main',
     ring,
-    ready: Promise.resolve({ mapW: runner.world.mapW, mapH: runner.world.mapH, map: mapRenderData(runner.world.map) }),
+    ready: Promise.resolve({
+      mapW: runner.world.mapW, mapH: runner.world.mapH, map: mapRenderData(runner.world.map),
+      focus: runner.world.focus, select: runner.world.initialSelect,
+    }),
     command: (cmd) => runner.enqueue(cmd),
     control: (c) => runner.control(c.paused, c.timeScale, c.step),
     requestNavDebug: (cls) => runner.navDebug(cls),

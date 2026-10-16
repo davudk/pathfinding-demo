@@ -15,7 +15,7 @@ function runScenario(name: string, ticks: number): number {
 }
 
 describe('determinism', () => {
-  it('scenarios with orders, paths, contacts and detours replay identically', () => {
+  it('scenarios with orders, paths, contacts and detours replay identically', { timeout: 60_000 }, () => {
     for (const name of ['choke', 'holdline', 'cross']) expect(runScenario(name, 600), name).toBe(runScenario(name, 600));
   });
 

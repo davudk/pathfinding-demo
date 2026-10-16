@@ -2,6 +2,10 @@ import { parseMap, type BuildingDef } from '../shared/mapFormat';
 import { H_ALIVE, H_NAV_VERSION, H_PATH_QUEUE, H_PATH_SERVED, H_SYS_BASE, H_TIME_F64, type FromSim, type SceneConfig } from '../shared/protocol';
 import { NavOverlay } from './navOverlay';
 import { FieldOverlay } from './fieldOverlay';
+import { TuningPanel, type DisplayOptions } from './tuningPanel';
+import { SCENARIO_INFO } from '../shared/scenarios';
+import { runBenchmark } from './bench';
+import { FACTION_COLORS, FACTION_COLORS_CB } from '../shared/factions';
 import { ClickMarkers, MARKER_MOVE, MARKER_PATROL, PathOverlay } from './pathOverlay';
 import { Editor, type EditorTool } from './editor';
 import type { Polygon } from '../shared/geometry';
@@ -97,6 +101,7 @@ export class App {
   private readonly minimap: Minimap;
   private readonly panel: SelectionPanel;
   private readonly editor: Editor;
+  private readonly tuning: TuningPanel;
   private outlines: LineBatch | null = null;
   private lastPrune = 0;
   private watchedVersion = -1;
@@ -130,6 +135,7 @@ export class App {
     this.editor = new Editor(el.canvas, cam, this.renderer.lines.batch(256), () => ({ w: this.mapW, h: this.mapH }), (cmd) => this.host.command(cmd), () => this.syncEditorPanel());
     this.overLines.push(this.editor.ghost);
     this.wireEditorPanel();
+    this.tuning = new TuningPanel((cmd) => this.host.command(cmd), (d) => this.applyDisplay(d));
     this.host.onEvent = this.onSimEvent;
     window.addEventListener('keydown', this.onKey);
   }
@@ -170,6 +176,17 @@ export class App {
 
   private buildingsCache: readonly BuildingDef[] = [];
 
+  private applyDisplay(d: DisplayOptions): void {
+    const pal = d.colorBlind ? FACTION_COLORS_CB : FACTION_COLORS;
+    this.renderer.units.setFactionColors(pal);
+    this.renderer.buildings.setPalette(pal);
+    this.minimap.setPalette(pal);
+    this.panel.setPalette(pal);
+    this.pathOverlay.enabled = d.orderLines;
+    this.camCtl.edgePan = d.edgePan;
+    this.el.hud.parentElement?.classList.toggle('hidden', !d.stats);
+  }
+
   /** Crisp rock outlines on top of the distance-field shading. */
   private setOutlines(terrain: readonly Polygon[]): void {
     let n = 16;
@@ -191,7 +208,31 @@ export class App {
     this.editor.setMapData(terrain, this.buildingsCache);
   }
 
+  private wireScenarioPicker(): void {
+    const pick = document.getElementById('scene-pick') as HTMLSelectElement | null;
+    const about = document.getElementById('scene-about');
+    if (!pick) return;
+    const current = new URLSearchParams(location.search).get('scene') ?? 'stress';
+    for (const s of SCENARIO_INFO) {
+      const o = document.createElement('option');
+      o.value = s.id;
+      o.textContent = s.label;
+      o.selected = s.id === current;
+      pick.append(o);
+    }
+    const describe = (): void => {
+      if (about) about.textContent = SCENARIO_INFO.find((s) => s.id === pick.value)?.about ?? '';
+    };
+    describe();
+    pick.addEventListener('change', () => {
+      const q = new URLSearchParams(location.search);
+      q.set('scene', pick.value);
+      location.search = q.toString();
+    });
+  }
+
   private wireEditorPanel(): void {
+    this.wireScenarioPicker();
     for (const b of document.querySelectorAll<HTMLButtonElement>('#editor [data-tool]')) {
       b.addEventListener('click', () => this.editor.setTool(b.dataset.tool as EditorTool));
     }
@@ -254,7 +295,7 @@ export class App {
   }
 
   async start(): Promise<void> {
-    const { mapW, mapH, map } = await this.host.ready;
+    const { mapW, mapH, map, focus, select } = await this.host.ready;
     this.mapW = mapW;
     this.mapH = mapH;
     const up = this.renderer.setMap(map, mapW, mapH);
@@ -264,9 +305,10 @@ export class App {
     const st = map.stats;
     this.mapInfo = `${map.name} · ${st.terrainPolygons} rock polys / ${st.terrainVertices} verts · ${st.buildings} buildings · gen ${st.totalMs.toFixed(0)} ms · gpu upload ${up.ms.toFixed(0)} ms`;
     const cam = this.renderer.camera;
-    cam.centerX = mapW / 2;
-    cam.centerY = mapH / 2;
-    this.camCtl.setZoom(Math.max(cam.minZoom, Math.min(cam.viewW / mapW, cam.viewH / mapH) * 2.5));
+    cam.centerX = focus ? focus.x : mapW / 2;
+    cam.centerY = focus ? focus.y : mapH / 2;
+    this.camCtl.setZoom(focus ? focus.zoom : Math.max(cam.minZoom, Math.min(cam.viewW / mapW, cam.viewH / mapH) * 2.5));
+    if (select.length) this.selection.set(select, false);
 
     const border = this.renderer.lines.batch(8);
     border.polyline([0, 0, mapW, 0, mapW, mapH, 0, mapH], true, rgba(120, 132, 150, 200), 2);
@@ -275,6 +317,17 @@ export class App {
 
     this.lastFrame = performance.now();
     requestAnimationFrame(this.frame);
+    const bench = Number(new URLSearchParams(location.search).get('bench'));
+    if (bench > 0) {
+      this.showToast(`Benchmark running (${bench}s after 5s warm-up)…`);
+      runBenchmark(this.host, bench, (text) => {
+        const box = document.getElementById('bench-result');
+        if (box) {
+          box.textContent = text;
+          box.classList.remove('hidden');
+        }
+      });
+    }
   }
 
   private readonly frame = (now: number): void => {
@@ -452,6 +505,10 @@ export class App {
       case 'F4':
         e.preventDefault();
         this.fieldOverlay.toggle();
+        break;
+      case 'F5':
+        e.preventDefault();
+        this.tuning.toggle();
         break;
       case 'KeyB':
         this.editor.setTool('building');
