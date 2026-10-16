@@ -23,6 +23,10 @@ export const H_MAP_H = 4;
 export const H_TIME_F64 = 4;
 /** Navmesh version (bumped on every obstacle edit). */
 export const H_NAV_VERSION = 5;
+/** Path requests waiting in the queue. */
+export const H_PATH_QUEUE = 6;
+/** Path requests served this tick. */
+export const H_PATH_SERVED = 7;
 /** Float32 per-system timings (ms) of the tick that produced the snapshot. */
 export const H_SYS_BASE = 16;
 export const H_SYS_MAX = 32;
@@ -115,7 +119,17 @@ export type SimCommand =
   | { readonly kind: 'spawnRandom'; readonly count: number }
   | { readonly kind: 'despawn'; readonly handles: Int32Array }
   | { readonly kind: 'placeBuilding'; readonly x: number; readonly y: number; readonly w: number; readonly h: number; readonly faction: number; readonly type: string }
-  | { readonly kind: 'removeBuildingAt'; readonly x: number; readonly y: number };
+  | { readonly kind: 'removeBuildingAt'; readonly x: number; readonly y: number }
+  | { readonly kind: 'move'; readonly handles: Int32Array; readonly x: number; readonly y: number };
+
+/** Path of one watched unit: polyline and the index of its next waypoint. */
+export interface PathEntry {
+  readonly handle: number;
+  /** null = path unchanged since the last message (only the cursor moved). */
+  readonly points: Float32Array | null;
+  readonly cursor: number;
+  readonly complete: boolean;
+}
 
 /** Navmesh debug geometry for overlays. */
 export interface NavDebugData {
@@ -138,7 +152,8 @@ export type ToSim =
   | { readonly type: 'command'; readonly cmd: SimCommand }
   | { readonly type: 'control'; readonly paused?: boolean; readonly timeScale?: number; readonly step?: boolean }
   | { readonly type: 'returnBuffer'; readonly buffer: ArrayBuffer }
-  | { readonly type: 'debugNavmesh'; readonly cls: number };
+  | { readonly type: 'debugNavmesh'; readonly cls: number }
+  | { readonly type: 'watchPaths'; readonly handles: Int32Array };
 
 export type FromSim =
   | { readonly type: 'ready'; readonly mapW: number; readonly mapH: number; readonly map: MapRenderData }
@@ -146,6 +161,7 @@ export type FromSim =
   | { readonly type: 'buildings'; readonly buildings: readonly BuildingDef[] }
   | { readonly type: 'notice'; readonly text: string }
   | { readonly type: 'navDebug'; readonly data: NavDebugData }
+  | { readonly type: 'paths'; readonly entries: readonly PathEntry[]; readonly cleared: Int32Array }
   | { readonly type: 'error'; readonly message: string };
 
 /** Minimal port shape shared by DedicatedWorkerGlobalScope and Worker. */

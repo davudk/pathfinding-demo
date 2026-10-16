@@ -319,3 +319,17 @@ Execution plan:
 - **Blocked flags** are per-triangle obstacle *coverage counts*. They are flood-filled per obstacle from the interior side of its first edge and inherited through splits and flips. Unconstrained edges always separate triangles with equal counts.
 - **Regions** use a necessary condition: a crossed edge must be ≥ 2r long, because both of its endpoints are obstacle points. They are recomputed globally after an edit: about 1.5 ms in Node and 3–4 ms in the worker. *Follow-up (M7):* make regions incremental, or defer them until the first query after an edit.
 - **Edit cost:** CDT plus width update is about 0.05 ms per building. The rest is region recomputation, plus a full occupancy-raster rebuild done on the sim thread.
+
+**M3 — single-unit pathing**
+- **Search.** A* nodes are entry halfedges. A transition from entry n to exit x requires corner width ≥ 2r + `PASSAGE_SLACK` (2 cm) and exit-edge length ≥ 2r + slack.
+  - Exactly-fitting passages are refused: they make the funnel's inner tangents degenerate, and they would leave locomotion zero slack.
+  - g uses the best crossing point on each edge (shrunk by r), and h is Euclidean.
+  - The anytime refinement (+50% expansions) starts only after the first *clearance-valid* goal arrival.
+- **Funnel.** A Simple Stupid Funnel over corner circles, using circle-to-circle tangents, with three post-passes:
+  1. *Corner repair:* any vertex within two triangle-rings of the corridor that a straight run passes closer than r to is inserted as a corner on its actual side. This covers start/goal-triangle corners.
+  2. *Clearance repair:* samples closer than r to the real mesh (near tangent touch points and arcs) are pushed out to r, plus the chord sagitta.
+  3. *Validation:* the path is sampled against true mesh clearance. Goal arrivals that fail are skipped; if none pass, the best one is returned with `clear: false` (under 2% of random queries in fuzzing).
+- **Tolerance.** `CLEARANCE_TOLERANCE` is 1 cm.
+- **Unreachable goals** resolve to the path toward the reachable crossing point closest to the goal, considering only valid positions. Goals and starts are snapped to valid positions first: clicking on rock moves to the nearest spot the unit fits.
+- **Cost.** About 1 ms per query on average and about 7 ms worst (cross-map colossal) in Node, roughly 2 ms per cross-map path in the worker. A 300-unit order is served over about 100 ticks under the 4 ms per-tick budget. M6 group fields address this.
+- **Temporary follower.** M3 has a simple waypoint follower with no acceleration and no unit interaction. M4 replaces it.

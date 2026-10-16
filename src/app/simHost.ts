@@ -23,6 +23,8 @@ export interface SimHost {
   control(c: { paused?: boolean; timeScale?: number; step?: boolean }): void;
   /** Requests navmesh debug geometry; arrives as a 'navDebug' event. */
   requestNavDebug(cls: number): void;
+  /** Subscribes to path updates of these units (arrive as 'paths' events). */
+  watchPaths(handles: Int32Array): void;
   /** Receives sim events (buildings changed, notices, debug data). */
   onEvent: (msg: FromSim) => void;
   /** Pulls new snapshots (shared-memory mode); no-op otherwise. Call once per frame. */
@@ -92,6 +94,7 @@ function createWorkerHost(scene: SceneConfig, useSab: boolean): SimHost {
         case 'buildings':
         case 'notice':
         case 'navDebug':
+        case 'paths':
           host.onEvent(msg);
           break;
         case 'error':
@@ -113,6 +116,7 @@ function createWorkerHost(scene: SceneConfig, useSab: boolean): SimHost {
     command: (cmd) => post({ type: 'command', cmd }),
     control: (c) => post({ type: 'control', ...c }),
     requestNavDebug: (cls) => post({ type: 'debugNavmesh', cls }),
+    watchPaths: (handles) => post({ type: 'watchPaths', handles }),
     onEvent: () => {},
     poll: () => poll(),
   };
@@ -135,6 +139,7 @@ function createMainThreadHost(scene: SceneConfig): SimHost {
     command: (cmd) => runner.enqueue(cmd),
     control: (c) => runner.control(c.paused, c.timeScale, c.step),
     requestNavDebug: (cls) => runner.navDebug(cls),
+    watchPaths: (handles) => runner.watchPaths(handles),
     onEvent: () => {},
     poll: () => {},
   };

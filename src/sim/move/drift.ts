@@ -1,6 +1,6 @@
 import { SIM_DT } from '../../shared/constants';
 import { turnToward } from '../../shared/math';
-import { MoveState } from '../store/units';
+import { MoveState, UNIT_FLAG_DRIFT } from '../store/units';
 import type { World } from '../world';
 
 /**
@@ -13,6 +13,7 @@ export function driftUnits(world: World): void {
   const dt = SIM_DT;
   for (let k = 0; k < u.count; k++) {
     const i = u.active[k];
+    if ((u.flags[i] & UNIT_FLAG_DRIFT) === 0) continue;
     const r = u.radius[i];
     let vx = u.velX[i];
     let vy = u.velY[i];

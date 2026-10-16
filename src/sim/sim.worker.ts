@@ -39,6 +39,9 @@ port.onmessage = (ev) => {
       case 'debugNavmesh':
         runner?.navDebug(msg.cls);
         break;
+      case 'watchPaths':
+        runner?.watchPaths(msg.handles);
+        break;
     }
   } catch (err) {
     port.postMessage({ type: 'error', message: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) });

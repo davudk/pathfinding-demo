@@ -2,6 +2,7 @@ import { ARCHETYPES, ArchetypeId } from '../../shared/archetypes';
 import { Faction } from '../../shared/factions';
 import { TAU } from '../../shared/math';
 import type { World } from '../world';
+import { UNIT_FLAG_DRIFT } from '../store/units';
 
 /** Archetype mix for random stress spawns: mostly small units, a few huge ones. */
 const MIX: readonly (readonly [number, number])[] = [
@@ -39,6 +40,7 @@ export function spawnRandomUnits(world: World, count: number): void {
     const h = units.spawn(arch, faction, x, y, rng.range(-Math.PI, Math.PI));
     if (h === 0) return;
     const i = h & 0xffff;
+    units.flags[i] |= UNIT_FLAG_DRIFT;
     const a = rng.range(0, TAU);
     const s = units.maxSpeed[i] * rng.range(0.4, 1);
     units.velX[i] = Math.cos(a) * s;

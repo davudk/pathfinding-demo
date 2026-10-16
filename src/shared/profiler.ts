@@ -63,8 +63,9 @@ export function percentile(values: Float32Array, n: number, p: number, scratch: 
 /** Sim-side system ids. Order matches SIM_SYSTEM_NAMES; written into snapshot headers. */
 export const SimSys = {
   Commands: 0,
-  Move: 1,
-  Snapshot: 2,
-  Total: 3,
+  Path: 1,
+  Move: 2,
+  Snapshot: 3,
+  Total: 4,
 } as const;
-export const SIM_SYSTEM_NAMES: readonly string[] = ['commands', 'move', 'snapshot', 'total'];
+export const SIM_SYSTEM_NAMES: readonly string[] = ['commands', 'path', 'move', 'snapshot', 'total'];

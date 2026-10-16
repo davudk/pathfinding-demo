@@ -11,6 +11,9 @@ export const MoveState = {
 } as const;
 export type MoveState = (typeof MoveState)[keyof typeof MoveState];
 
+/** Ambient placeholder motion (M0 drift); cleared when the unit gets an order. */
+export const UNIT_FLAG_DRIFT = 1;
+
 /**
  * Structure-of-arrays unit storage with fixed capacity, generation-checked handles,
  * a free list, and a dense active list (iterate `active[0..count)` — every entry is alive).

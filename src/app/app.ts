@@ -1,6 +1,7 @@
-import { H_ALIVE, H_NAV_VERSION, H_SYS_BASE, H_TIME_F64, type FromSim, type SceneConfig } from '../shared/protocol';
+import { H_ALIVE, H_NAV_VERSION, H_PATH_QUEUE, H_PATH_SERVED, H_SYS_BASE, H_TIME_F64, type FromSim, type SceneConfig } from '../shared/protocol';
 import { Faction } from '../shared/factions';
 import { NavOverlay } from './navOverlay';
+import { ClickMarkers, PathOverlay } from './pathOverlay';
 import { Profiler, SIM_SYSTEM_NAMES, SimSys, percentile } from '../shared/profiler';
 import { SIM_HZ } from '../shared/constants';
 import { Renderer } from '../render/renderer';
@@ -65,6 +66,9 @@ export class App {
   private timeScale = 1;
   private mapInfo = '';
   private readonly nav: NavOverlay;
+  private readonly pathOverlay: PathOverlay;
+  private readonly markers: ClickMarkers;
+  private watchedVersion = -1;
   private pointerX = -1;
   private pointerY = -1;
   private buildSize = 1;
@@ -79,6 +83,10 @@ export class App {
     this.camCtl = new CameraController(el.canvas, cam, () => ({ w: this.mapW, h: this.mapH }));
     this.selCtl = new SelectionController(el.canvas, cam, this.selection, el.selBox, () => this.bracket.b?.views ?? null);
     this.nav = new NavOverlay(this.renderer.gl, this.renderer.lines, (cls) => this.host.requestNavDebug(cls));
+    this.pathOverlay = new PathOverlay(this.renderer.lines.batch(4096));
+    this.markers = new ClickMarkers(this.renderer.lines.batch(256));
+    this.overLines.push(this.pathOverlay.batch, this.markers.batch);
+    el.canvas.addEventListener('pointerdown', this.onRightDown);
     this.host.onEvent = this.onSimEvent;
     el.canvas.addEventListener('pointermove', (e) => {
       this.pointerX = e.offsetX;
@@ -98,7 +106,20 @@ export class App {
       case 'navDebug':
         this.nav.receive(msg.data);
         break;
+      case 'paths':
+        this.pathOverlay.receive(msg.entries, msg.cleared);
+        break;
     }
+  };
+
+  /** Right-click: move the selection to the clicked point. */
+  private readonly onRightDown = (e: PointerEvent): void => {
+    if (e.button !== 2 || this.selection.handles.size === 0) return;
+    const cam = this.renderer.camera;
+    const x = cam.screenToWorldX(e.offsetX), y = cam.screenToWorldY(e.offsetY);
+    if (x < 0 || y < 0 || x > this.mapW || y > this.mapH) return;
+    this.host.command({ kind: 'move', handles: Int32Array.from(this.selection.handles), x, y });
+    this.markers.add(x, y);
   };
 
   private showToast(text: string): void {
@@ -165,6 +186,13 @@ export class App {
         const n = this.selection.syncFlags();
         if (n >= 0) this.renderer.units.uploadSelection(this.selection.flags, n);
         this.nav.update(b.views.i32[H_NAV_VERSION]);
+        if (this.selection.version !== this.watchedVersion) {
+          this.watchedVersion = this.selection.version;
+          this.pathOverlay.reset();
+          this.host.watchPaths(Int32Array.from(this.selection.handles));
+        }
+        this.pathOverlay.update(a, b, alpha);
+        this.markers.update(now, this.renderer.camera.zoom);
         const under = this.nav.enabled ? [...this.underLines, this.nav.edges] : this.underLines;
         this.renderer.render({
           a, b, alpha, mapW: this.mapW, mapH: this.mapH, under, over: this.overLines,
@@ -204,6 +232,7 @@ export class App {
       h.set('sys', 'Systems', parts.join(' · '));
       h.set('tick', 'Tick', `${latest.tick}${this.paused ? '  ⏸ paused' : ''}${this.timeScale !== 1 ? `  ×${this.timeScale}` : ''}`);
       h.set('units', 'Units', `${latest.views.i32[H_ALIVE]}`);
+      h.set('paths', 'Paths', `${latest.views.i32[H_PATH_SERVED]} served/tick · ${latest.views.i32[H_PATH_QUEUE]} queued`);
     }
     h.set('sel', 'Selected', `${this.selection.handles.size}`);
     h.set('mode', 'Sim host', this.host.mode);

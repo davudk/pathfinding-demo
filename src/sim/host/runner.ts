@@ -28,6 +28,10 @@ export class SimRunner {
   private acc = 0;
   private last = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Units whose paths the client wants (selection); last version / cursor sent per slot. */
+  private watched: Int32Array = new Int32Array(0);
+  private sentVersion = new Map<number, number>();
+  private sentCursor = new Map<number, number>();
 
   constructor(scene: SceneConfig, sink: SnapshotSink, private readonly emit: (msg: FromSim, transfer?: Transferable[]) => void) {
     this.world = createWorld(scene);
@@ -40,6 +44,42 @@ export class SimRunner {
     const d = nav.exportDebug(cls);
     const data: NavDebugData = { version: nav.version, cls, ...d, stats: { ...nav.stats, regions: nav.stats.regions.slice() } };
     this.emit({ type: 'navDebug', data }, [d.edges.buffer, d.tris.buffer, d.region.buffer]);
+  }
+
+  watchPaths(handles: Int32Array): void {
+    this.watched = handles;
+    this.sentVersion.clear();
+    this.sentCursor.clear();
+    this.emitPaths();
+  }
+
+  /** Sends new paths and cursor changes for watched units. */
+  private emitPaths(): void {
+    if (this.watched.length === 0) return;
+    const { units, paths } = this.world;
+    const entries: { handle: number; points: Float32Array | null; cursor: number; complete: boolean }[] = [];
+    const cleared: number[] = [];
+    for (const h of this.watched) {
+      if (!units.isValid(h)) continue;
+      const i = h & 0xffff;
+      const pts = paths.points[i];
+      const ver = paths.version[i];
+      const prevVer = this.sentVersion.get(h);
+      if (!pts) {
+        if (prevVer !== undefined && prevVer !== ver) cleared.push(h);
+        this.sentVersion.set(h, ver);
+        continue;
+      }
+      const cur = paths.cursor[i];
+      if (prevVer !== ver) {
+        entries.push({ handle: h, points: Float32Array.from(pts), cursor: cur, complete: paths.complete[i] === 1 });
+      } else if (this.sentCursor.get(h) !== cur) {
+        entries.push({ handle: h, points: null, cursor: cur, complete: paths.complete[i] === 1 });
+      } else continue;
+      this.sentVersion.set(h, ver);
+      this.sentCursor.set(h, cur);
+    }
+    if (entries.length || cleared.length) this.emit({ type: 'paths', entries, cleared: Int32Array.from(cleared) });
   }
 
   start(): void {
@@ -88,6 +128,7 @@ export class SimRunner {
     this.pending = [];
     step(this.world, cmds);
     this.publish();
+    this.emitPaths();
     const ev = this.world.events;
     if (ev.length) {
       for (const m of ev) this.emit(m);

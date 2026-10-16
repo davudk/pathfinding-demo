@@ -5,6 +5,7 @@ import { Rng } from '../shared/rng';
 import { Profiler, SIM_SYSTEM_NAMES } from '../shared/profiler';
 import type { FromSim, SceneConfig } from '../shared/protocol';
 import { NavMesh } from './nav/navmesh';
+import { PathQueue, PathStore } from './nav/pathQueue';
 import { UnitStore } from './store/units';
 import { spawnRandomUnits } from './scenarios/stress';
 
@@ -16,6 +17,8 @@ export interface World {
   readonly units: UnitStore;
   readonly map: WorldMap;
   readonly nav: NavMesh;
+  readonly paths: PathStore;
+  readonly pathQueue: PathQueue;
   /** Messages for the main thread, flushed by the runner after each tick. */
   readonly events: FromSim[];
   readonly prof: Profiler;
@@ -24,6 +27,8 @@ export interface World {
 export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World {
   const gen = generateMap(scene.mapSeed, DEFAULT_MAP_SIZE);
   const map = loadWorldMap(gen.map, gen.mainPoint);
+  const nav = NavMesh.build(map.width, map.height, map.terrain, map.buildingRings);
+  const paths = new PathStore(capacity);
   const world: World = {
     tick: 0,
     mapW: map.width,
@@ -31,7 +36,9 @@ export function createWorld(scene: SceneConfig, capacity = UNIT_CAPACITY): World
     rng: new Rng(scene.seed),
     units: new UnitStore(capacity),
     map,
-    nav: NavMesh.build(map.width, map.height, map.terrain, map.buildingRings),
+    nav,
+    paths,
+    pathQueue: new PathQueue(nav, capacity, paths),
     events: [],
     prof: new Profiler(SIM_SYSTEM_NAMES, 120),
   };
