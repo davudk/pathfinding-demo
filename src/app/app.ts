@@ -14,7 +14,7 @@ import { ControlGroups } from '../input/controlGroups';
 import { Minimap } from '../ui/minimap';
 import { SelectionPanel } from '../ui/selectionPanel';
 import { I_HANDLE, INST_WORDS, SNAP_HEADER_WORDS, I_X, I_Y } from '../shared/protocol';
-import { Profiler, SIM_SYSTEM_NAMES, SimSys, percentile } from '../shared/profiler';
+import { Profiler, SimSys, percentile } from '../shared/profiler';
 import { SIM_HZ } from '../shared/constants';
 import { Renderer } from '../render/renderer';
 import { rgba, type LineBatch } from '../render/passes/lines';
@@ -303,7 +303,7 @@ export class App {
     this.editor.setMapData(map.terrain, map.buildings);
     this.buildingsCache = map.buildings;
     const st = map.stats;
-    this.mapInfo = `${map.name} · ${st.terrainPolygons} rock polys / ${st.terrainVertices} verts · ${st.buildings} buildings · gen ${st.totalMs.toFixed(0)} ms · gpu upload ${up.ms.toFixed(0)} ms`;
+    this.mapInfo = `${st.terrainPolygons} rocks · ${st.buildings} buildings · gen ${st.totalMs.toFixed(0)} ms · upload ${up.ms.toFixed(0)} ms`;
     const cam = this.renderer.camera;
     cam.centerX = focus ? focus.x : mapW / 2;
     cam.centerY = focus ? focus.y : mapH / 2;
@@ -411,10 +411,11 @@ export class App {
     const latest = this.host.ring.latest;
     if (latest) {
       const f = latest.views.f32;
-      const parts = SIM_SYSTEM_NAMES.map((name, i) => `${name} ${f[H_SYS_BASE + i].toFixed(2)}`);
+      const sys = (k: number): string => f[H_SYS_BASE + k].toFixed(1);
       const simP95 = percentile(this.simTotals.subarray(this.simTotals.length - this.simTotalsN), this.simTotalsN, 0.95, this.scratchB);
       h.set('sim', 'Sim tick', `${f[H_SYS_BASE + SimSys.Total].toFixed(2)} ms (p95 ${simP95.toFixed(2)}) @ ${SIM_HZ} Hz`);
-      h.set('sys', 'Systems', parts.join(' · '));
+      h.set('sys', 'Tick split', `cmd ${sys(SimSys.Commands)} · path ${sys(SimSys.Path)} · move ${sys(SimSys.Move)}`);
+      h.set('move', 'Movement', `steer ${sys(SimSys.Steer)} · contacts ${sys(SimSys.Contacts)} · grid ${sys(SimSys.Grid)} · follow ${sys(SimSys.Follow)} · arrive ${sys(SimSys.Arrive)}`);
       h.set('tick', 'Tick', `${latest.tick}${this.paused ? '  ⏸ paused' : ''}${this.timeScale !== 1 ? `  ×${this.timeScale}` : ''}`);
       h.set('units', 'Units', `${latest.views.i32[H_ALIVE]}`);
       h.set('paths', 'Paths', `${latest.views.i32[H_PATH_SERVED]} served/tick · ${latest.views.i32[H_PATH_QUEUE]} queued`);

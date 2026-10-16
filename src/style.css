@@ -52,18 +52,24 @@ body {
   border-radius: 6px;
   pointer-events: none;
   backdrop-filter: blur(4px);
-  max-width: calc(100vw - 20px);
+  /* Fixed width: long values wrap instead of stretching the panel across the screen. */
+  width: min(340px, calc(100vw - 20px));
 }
 
 .hud-row {
   display: flex;
   gap: 10px;
-  white-space: nowrap;
 }
 
 .hud-label {
   color: var(--text-dim);
-  min-width: 64px;
+  min-width: 72px;
+  flex-shrink: 0;
+}
+
+.hud-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 #hud-graph {
