@@ -62,6 +62,8 @@ export class Locomotion {
   private readonly wallNY: Float64Array;
   /** Distance to goal at the start of the stall window (blocked-progress arrival). */
   private readonly stallDist: Float64Array;
+  /** Tick a unit last touched a moving group-mate (congestion, not stuck). */
+  private readonly crowdTick: Int32Array;
   private pairI = new Int32Array(1 << 14);
   private pairJ = new Int32Array(1 << 14);
   private pairCount = 0;
@@ -83,6 +85,7 @@ export class Locomotion {
     this.wallNX = new Float64Array(capacity);
     this.wallNY = new Float64Array(capacity);
     this.stallDist = new Float64Array(capacity).fill(Infinity);
+    this.crowdTick = new Int32Array(capacity).fill(-1000);
   }
 
   step(world: World): void {
@@ -171,7 +174,7 @@ export class Locomotion {
           world.pathQueue.request(u.handleOf(i), u.goalX[i], u.goalY[i]);
         }
       }
-      this.towards(world, i, pts[2 * c], pts[2 * c + 1], c === m - 1);
+      this.towards(world, i, pts[2 * c], pts[2 * c + 1], c === m - 1 && paths.partial[i] === 0);
     }
   }
 
@@ -405,7 +408,15 @@ export class Locomotion {
         const d2 = dx * dx + dy * dy;
         if (d2 >= R * R) continue;
         let d = Math.sqrt(d2);
-        if (it === 0) this.chainArrival(world, i, j);
+        if (it === 0) {
+          this.chainArrival(world, i, j);
+          // Pressed against a moving group-mate: congestion (waiting in line), not being stuck.
+          const oi = u.orderId[i];
+          if (oi > 0 && oi === u.orderId[j] && u.state[i] === S_MOVING && u.state[j] === S_MOVING) {
+            this.crowdTick[i] = world.tick;
+            this.crowdTick[j] = world.tick;
+          }
+        }
         const pen = R - d;
         if (pen <= SLACK_FRAC * Math.min(ri, rj)) continue;
         if (d < 1e-9) {
@@ -468,7 +479,14 @@ export class Locomotion {
           const i = s === 0 ? pairI[p] : pairJ[p];
           const c = cnt[i];
           if (c === 0) continue;
-          const x = u.posX[i] + (OMEGA * accX[i]) / c, y = u.posY[i] + (OMEGA * accY[i]) / c;
+          // Clamp the per-iteration correction so a crowd can't tunnel a unit through a wall.
+          let cx = (OMEGA * accX[i]) / c, cy = (OMEGA * accY[i]) / c;
+          const cl = Math.hypot(cx, cy), cmax = 0.3 * u.radius[i];
+          if (cl > cmax) {
+            cx *= cmax / cl;
+            cy *= cmax / cl;
+          }
+          const x = u.posX[i] + cx, y = u.posY[i] + cy;
           accX[i] = 0;
           accY[i] = 0;
           cnt[i] = 0;
@@ -514,8 +532,15 @@ export class Locomotion {
       if (dl > cap) {
         dx *= cap / dl;
         dy *= cap / dl;
-        u.posX[i] = this.oldX[i] + dx;
-        u.posY[i] = this.oldY[i] + dy;
+        let nx = this.oldX[i] + dx, ny = this.oldY[i] + dy;
+        if (world.walls.resolve(nx, ny, u.radius[i], this.tmp)) {
+          nx = this.tmp[0];
+          ny = this.tmp[1];
+        }
+        u.posX[i] = nx;
+        u.posY[i] = ny;
+        dx = nx - this.oldX[i];
+        dy = ny - this.oldY[i];
       }
       const st = u.state[i];
       if (st === MoveState.Moving) {
@@ -558,7 +583,7 @@ export class Locomotion {
       const x = u.posX[i], y = u.posY[i];
       const dGoal = Math.hypot(u.goalX[i] - x, u.goalY[i] - y);
       const pts = paths.points[i];
-      const atEnd = pts !== null && paths.cursor[i] >= (pts.length >> 1) - 1;
+      const atEnd = pts !== null && paths.partial[i] === 0 && paths.cursor[i] >= (pts.length >> 1) - 1;
       // Direct arrival.
       if (dGoal < Math.max(0.2, u.radius[i] * 0.4) && (atEnd || pts === null) && !paths.pending[i]) {
         arrive(world, i);
@@ -581,7 +606,11 @@ export class Locomotion {
       if (tick - u.stuckTick[i] >= STUCK_WINDOW) {
         const moved = Math.hypot(x - u.stuckX[i], y - u.stuckY[i]);
         const expected = u.maxSpeed[i] * STUCK_WINDOW * dt;
-        if (moved < STUCK_FRACTION * expected) {
+        if (moved < STUCK_FRACTION * expected && tick - this.crowdTick[i] < 10) {
+          // Waiting in line behind group-mates: squeeze a little, but never escalate.
+          u.squeezeUntil[i] = tick + SQUEEZE_TICKS;
+          u.stuckStage[i] = 0;
+        } else if (moved < STUCK_FRACTION * expected) {
           const stage = u.stuckStage[i] + 1;
           const wantsDetour = stage === 1 || stage === 3;
           if (wantsDetour && detours >= DETOURS_PER_TICK) {

@@ -63,6 +63,10 @@ export class UnitStore {
   readonly arrivedTick: Int32Array;
   /** Wander heading for ambient drifting units. */
   readonly wander: Float32Array;
+  /** Destination field the unit follows (0 = none / individual path). */
+  readonly fieldId: Int32Array;
+  /** Last known navmesh triangle (point-location hint). */
+  readonly navTri: Int32Array;
 
   /** Generation per slot; 0 = never used. */
   readonly gen: Uint16Array;
@@ -108,6 +112,8 @@ export class UnitStore {
     this.squeezeUntil = new Int32Array(capacity);
     this.arrivedTick = new Int32Array(capacity);
     this.wander = new Float32Array(capacity);
+    this.fieldId = new Int32Array(capacity);
+    this.navTri = new Int32Array(capacity).fill(-1);
     this.gen = new Uint16Array(capacity);
     this.alive = new Uint8Array(capacity);
     this.active = new Int32Array(capacity);
@@ -153,6 +159,8 @@ export class UnitStore {
     this.squeezeUntil[i] = 0;
     this.arrivedTick[i] = 0;
     this.wander[i] = heading;
+    this.fieldId[i] = 0;
+    this.navTri[i] = -1;
 
     this.denseIndex[i] = this.count;
     this.active[this.count++] = i;

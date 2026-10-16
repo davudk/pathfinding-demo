@@ -1,6 +1,7 @@
 import { H_ALIVE, H_NAV_VERSION, H_PATH_QUEUE, H_PATH_SERVED, H_SYS_BASE, H_TIME_F64, type FromSim, type SceneConfig } from '../shared/protocol';
 import { Faction } from '../shared/factions';
 import { NavOverlay } from './navOverlay';
+import { FieldOverlay } from './fieldOverlay';
 import { ClickMarkers, MARKER_MOVE, MARKER_PATROL, PathOverlay } from './pathOverlay';
 import { CommandController } from '../input/commandController';
 import { ControlGroups } from '../input/controlGroups';
@@ -74,6 +75,7 @@ export class App {
   private timeScale = 1;
   private mapInfo = '';
   private readonly nav: NavOverlay;
+  private readonly fieldOverlay: FieldOverlay;
   private readonly pathOverlay: PathOverlay;
   private readonly markers: ClickMarkers;
   private readonly commands: CommandController;
@@ -97,6 +99,8 @@ export class App {
     this.selCtl = new SelectionController(el.canvas, cam, this.selection, el.selBox, () => this.bracket.b?.views ?? null);
     this.nav = new NavOverlay(this.renderer.gl, this.renderer.lines, (cls) => this.host.requestNavDebug(cls));
     this.pathOverlay = new PathOverlay(this.renderer.lines.batch(4096));
+    this.fieldOverlay = new FieldOverlay(this.renderer.lines.batch(65536), () => this.host.requestFieldDebug());
+    this.underLines.push(this.fieldOverlay.batch);
     this.markers = new ClickMarkers(this.renderer.lines.batch(256));
     this.overLines.push(this.pathOverlay.batch, this.markers.batch);
     this.commands = new CommandController(el.canvas, cam, this.selection, () => ({ w: this.mapW, h: this.mapH }), (cmd, x, y) => {
@@ -132,6 +136,9 @@ export class App {
         break;
       case 'paths':
         this.pathOverlay.receive(msg.entries, msg.cleared);
+        break;
+      case 'fieldDebug':
+        this.fieldOverlay.receive(msg.arrows, msg.fields, msg.settled);
         break;
     }
   };
@@ -225,6 +232,7 @@ export class App {
         }
         this.pathOverlay.update(a, b, alpha);
         this.markers.update(now, this.renderer.camera.zoom);
+        this.fieldOverlay.update(now);
         this.minimap.update(now, b.views, this.selection.flags);
         this.panel.update(b.views, this.selection.handles, this.groups);
         if (now - this.lastPrune > 2000) {
@@ -277,6 +285,7 @@ export class App {
     h.set('mode', 'Sim host', this.host.mode);
     h.set('map', 'Map', this.mapInfo);
     h.set('nav', 'Navmesh', this.nav.enabled ? this.nav.info : 'F2 to show');
+    h.set('fields', 'Fields', this.fieldOverlay.info);
     const sn = Math.min(this.simTotalsN, 240);
     this.graph.draw(this.scratchA, n, this.simTotals.subarray(this.simTotals.length - sn), sn);
   }
@@ -352,6 +361,10 @@ export class App {
       case 'F3':
         e.preventDefault();
         this.nav.cycleClass();
+        break;
+      case 'F4':
+        e.preventDefault();
+        this.fieldOverlay.toggle();
         break;
       case 'KeyB': {
         if (this.pointerX < 0) break;

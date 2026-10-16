@@ -369,3 +369,20 @@ Execution plan:
 - **Order lines:** the current leg is the funnelled path (green, or yellow while patrolling); queued legs are straight; patrol loops are drawn closed.
 - **Minimap:** terrain and buildings are baked once, units are faction dots refreshed at 10 Hz (selected units in green), and the camera frame is drawn on top. Click/drag moves the camera; right click moves the selection.
 - **Bottom panel:** control-group bar plus a selection summary by faction and type.
+
+**M6 — group destination fields**
+- **When fields are used.** Orders with ≥ 5 units (`FIELD_MIN_GROUP`) use one destination field per radius class present. A field is a bounded, resumable reverse Dijkstra over triangles from the snapped click point.
+  - Each triangle stores the edge to cross next, the crossing point (edge shrunk by r, nearest the next point) and the distance.
+  - Transitions check exit-edge length and the corner width of the triangle being traversed, the same rules as A*.
+  - The search stops once every member's triangle is settled, plus a margin. A unit found in an unsettled triangle calls `need()`, which resumes the search.
+- **Registry.** Fields are deduplicated by (goal at 0.5 resolution, class), reference-counted by the units following them, and expanded under a per-tick budget of 24k settled triangles. A field resets when the navmesh version changes.
+- **Followers.** Every 6 ticks (staggered by unit), or when the local path runs out, a unit walks the field up to 24 triangles and funnels that corridor (exact unit radius) into a *partial* path. Partial paths don't decelerate or arrive at their end.
+  - Within 10 units of its own slot target the unit switches to an individual A* path for the last mile.
+  - Units unreachable by the field (other region / too narrow) fall back to A*.
+  - A detour locks the path until it's walked out, so field refreshes don't override it.
+- **Congestion is not stuck.** A unit pressed against moving units of its own order only squeezes; it never escalates to repath or give-up. Before this fix, 14 of 500 units waiting at the main ramp gave up.
+- **Contact robustness.** Per-iteration contact corrections are clamped to 0.3 r, and walls are re-resolved after the displacement cap. Crowds can no longer tunnel a unit into a wall: worst penetration went from 19 cm to 0.
+- **Measured:**
+  - A 500-unit mixed order gets 500/500 paths within 2 ticks. They exit the main base through the 5-wide ramp and settle 142 s later, 497/500 within 2R + 3 of the click (R = group packing radius).
+  - A 985-unit order in the 10k scene gets all paths within 6 ticks (4 fields).
+- **Debug:** F4 shows destination-field flow arrows.

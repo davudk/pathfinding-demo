@@ -42,6 +42,9 @@ port.onmessage = (ev) => {
       case 'watchPaths':
         runner?.watchPaths(msg.handles);
         break;
+      case 'debugFields':
+        runner?.fieldDebug();
+        break;
     }
   } catch (err) {
     port.postMessage({ type: 'error', message: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) });

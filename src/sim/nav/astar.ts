@@ -41,7 +41,7 @@ export interface PathResult extends FunnelResult {
   readonly clear: boolean;
 }
 
-class Heap {
+export class Heap {
   ids = new Int32Array(1024);
   keys = new Float64Array(1024);
   size = 0;

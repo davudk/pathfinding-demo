@@ -47,6 +47,11 @@ export class SimRunner {
     this.emit({ type: 'navDebug', data }, [d.edges.buffer, d.tris.buffer, d.region.buffer]);
   }
 
+  fieldDebug(): void {
+    const { arrows, settled } = this.world.fields.exportArrows();
+    this.emit({ type: 'fieldDebug', arrows, fields: this.world.fields.size, settled }, [arrows.buffer]);
+  }
+
   watchPaths(handles: Int32Array): void {
     this.watched = handles;
     this.sentVersion.clear();

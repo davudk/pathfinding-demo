@@ -2,6 +2,7 @@ import { SimSys } from '../shared/profiler';
 import type { SimCommand } from '../shared/protocol';
 import { spawnRandomUnits } from './scenarios/stress';
 import { issueMove, issueStop } from './move/orders';
+import { detachField, updateFieldFollowers } from './move/fieldFollow';
 import { placeBuilding, removeBuildingAt } from './edit';
 import type { World } from './world';
 
@@ -36,6 +37,8 @@ function applyCommand(world: World, cmd: SimCommand): void {
 
 /** Path search work per tick, in A* node expansions (≈ 3–4 ms in the worker). */
 const PATH_BUDGET_EXPANSIONS = 12_000;
+/** Destination-field work per tick, in settled triangles (player group orders go first). */
+const FIELD_BUDGET = 24_000;
 
 /** Advances the world by one fixed tick. `commands` were stamped for this tick. */
 export function step(world: World, commands: readonly SimCommand[]): void {
@@ -48,9 +51,11 @@ export function step(world: World, commands: readonly SimCommand[]): void {
   p.end(SimSys.Commands);
 
   p.begin(SimSys.Path);
+  world.fields.expandAll(FIELD_BUDGET);
   world.pathQueue.process(world.units, PATH_BUDGET_EXPANSIONS, (slot, ok) => {
     // The unit's goal becomes the (snapped / reachable) end of its path.
     const pts = world.paths.points[slot];
+    detachField(world, slot); // an individual path supersedes the field
     if (ok && pts) {
       world.units.goalX[slot] = pts[pts.length - 2];
       world.units.goalY[slot] = pts[pts.length - 1];
@@ -59,6 +64,7 @@ export function step(world: World, commands: readonly SimCommand[]): void {
   p.end(SimSys.Path);
 
   p.begin(SimSys.Move);
+  updateFieldFollowers(world);
   world.locomotion.step(world);
   p.end(SimSys.Move);
 

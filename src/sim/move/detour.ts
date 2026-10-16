@@ -149,7 +149,8 @@ function planIn(world: World, i: number, HALF: number): boolean {
   way.push(tx, ty);
   for (let k = targetIdx; k < m; k++) way.push(pts[2 * k], pts[2 * k + 1]);
   const complete = paths.complete[i] === 1;
-  paths.set(i, Float64Array.from(way), complete);
+  paths.set(i, Float64Array.from(way), complete, paths.partial[i] === 1);
+  paths.locked[i] = 1; // field followers must not overwrite the detour until it's walked
   return true;
 }
 

@@ -18,6 +18,10 @@ export class PathStore {
   /** 1 while a request for this slot is queued. */
   readonly pending: Uint8Array;
   readonly complete: Uint8Array;
+  /** 1 = the path is a local look-ahead (field corridor) that stops short of the goal. */
+  readonly partial: Uint8Array;
+  /** 1 = the path is a detour that must be walked out before field refreshes replace it. */
+  readonly locked: Uint8Array;
 
   constructor(capacity: number) {
     this.points = new Array<Float64Array | null>(capacity).fill(null);
@@ -25,12 +29,16 @@ export class PathStore {
     this.version = new Uint32Array(capacity);
     this.pending = new Uint8Array(capacity);
     this.complete = new Uint8Array(capacity);
+    this.partial = new Uint8Array(capacity);
+    this.locked = new Uint8Array(capacity);
   }
 
-  set(slot: number, pts: Float64Array | null, complete: boolean): void {
+  set(slot: number, pts: Float64Array | null, complete: boolean, partial = false): void {
     this.points[slot] = pts;
     this.cursor[slot] = pts ? 1 : 0;
     this.complete[slot] = complete ? 1 : 0;
+    this.partial[slot] = partial ? 1 : 0;
+    this.locked[slot] = 0;
     this.version[slot]++;
   }
 
@@ -38,6 +46,8 @@ export class PathStore {
     if (this.points[slot] === null && !this.pending[slot]) return;
     this.points[slot] = null;
     this.pending[slot] = 0;
+    this.partial[slot] = 0;
+    this.locked[slot] = 0;
     this.version[slot]++;
   }
 }

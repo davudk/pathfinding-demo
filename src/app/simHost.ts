@@ -25,6 +25,8 @@ export interface SimHost {
   requestNavDebug(cls: number): void;
   /** Subscribes to path updates of these units (arrive as 'paths' events). */
   watchPaths(handles: Int32Array): void;
+  /** Requests destination-field arrows (arrive as a 'fieldDebug' event). */
+  requestFieldDebug(): void;
   /** Receives sim events (buildings changed, notices, debug data). */
   onEvent: (msg: FromSim) => void;
   /** Pulls new snapshots (shared-memory mode); no-op otherwise. Call once per frame. */
@@ -95,6 +97,7 @@ function createWorkerHost(scene: SceneConfig, useSab: boolean): SimHost {
         case 'notice':
         case 'navDebug':
         case 'paths':
+        case 'fieldDebug':
           host.onEvent(msg);
           break;
         case 'error':
@@ -117,6 +120,7 @@ function createWorkerHost(scene: SceneConfig, useSab: boolean): SimHost {
     control: (c) => post({ type: 'control', ...c }),
     requestNavDebug: (cls) => post({ type: 'debugNavmesh', cls }),
     watchPaths: (handles) => post({ type: 'watchPaths', handles }),
+    requestFieldDebug: () => post({ type: 'debugFields' }),
     onEvent: () => {},
     poll: () => poll(),
   };
@@ -140,6 +144,7 @@ function createMainThreadHost(scene: SceneConfig): SimHost {
     control: (c) => runner.control(c.paused, c.timeScale, c.step),
     requestNavDebug: (cls) => runner.navDebug(cls),
     watchPaths: (handles) => runner.watchPaths(handles),
+    requestFieldDebug: () => runner.fieldDebug(),
     onEvent: () => {},
     poll: () => {},
   };

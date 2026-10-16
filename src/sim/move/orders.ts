@@ -12,6 +12,8 @@
 import { handleIndex } from '../../shared/handles';
 import { MoveState, UNIT_FLAG_DRIFT } from '../store/units';
 import type { World } from '../world';
+import { radiusClass } from '../nav/navmesh';
+import { detachField } from './fieldFollow';
 
 export interface MoveOrder {
   readonly id: number;
@@ -21,10 +23,14 @@ export interface MoveOrder {
   readonly groupRadius: number;
   /** Queue entries referencing this order. */
   refs: number;
+  /** Large groups follow shared destination fields instead of individual paths. */
+  readonly group: boolean;
 }
 
 /** Hex-ish packing density used to size groups. */
 const PACKING = 0.75;
+/** Orders with at least this many units use destination fields. */
+export const FIELD_MIN_GROUP = 5;
 
 export class Orders {
   private nextId = 1;
@@ -34,8 +40,10 @@ export class Orders {
     return this.orders.get(Math.abs(id));
   }
 
-  create(goalX: number, goalY: number, radiusSqSum: number): MoveOrder {
-    const o: MoveOrder = { id: this.nextId++, goalX, goalY, groupRadius: Math.sqrt(radiusSqSum / PACKING), refs: 0 };
+  create(goalX: number, goalY: number, radiusSqSum: number, members = 1): MoveOrder {
+    const o: MoveOrder = {
+      id: this.nextId++, goalX, goalY, groupRadius: Math.sqrt(radiusSqSum / PACKING), refs: 0, group: members >= FIELD_MIN_GROUP,
+    };
     this.orders.set(o.id, o);
     return o;
   }
@@ -151,6 +159,20 @@ function startFront(world: World, i: number): void {
   u.goalY[i] = q.y[e];
   u.state[i] = MoveState.Moving;
   resetMotion(world, i);
+  detachField(world, i);
+  const order = world.orders.get(q.order[e]);
+  if (order && order.group) {
+    // Group order: share the field toward the order's point; last mile goes to our own slot.
+    const f = world.fields.acquire(order.goalX, order.goalY, radiusClass(u.radius[i]));
+    u.fieldId[i] = f.id;
+    const t = world.nav.cdt.locate(u.posX[i], u.posY[i], u.navTri[i]);
+    u.navTri[i] = t;
+    f.need(t);
+    world.pathQueue.cancel(i);
+    world.paths.clear(i);
+    world.paths.pending[i] = 1;
+    return;
+  }
   world.pathQueue.request(u.handleOf(i), q.x[e], q.y[e]);
 }
 
@@ -219,7 +241,7 @@ export function issueMove(world: World, handles: Int32Array, x: number, y: numbe
     r2 += u.radius[i] ** 2;
   }
   const targets = magicBox(world, slots, bases, x, y);
-  const order = world.orders.create(x, y, r2);
+  const order = world.orders.create(x, y, r2, slots.length);
   // Patrol's return leg: one shared order whose goals are each unit's own base.
   let back = 0;
 
@@ -235,7 +257,7 @@ export function issueMove(world: World, handles: Int32Array, x: number, y: numbe
       if (q.push(i, OrderKind.Patrol, tx, ty, order.id)) world.orders.retain(order.id);
       if (!lastIsPatrol) {
         // Loop back to where the unit started (or where its queue ended).
-        if (back === 0) back = world.orders.create(bases[0], bases[1], r2).id;
+        if (back === 0) back = world.orders.create(bases[0], bases[1], r2, slots.length).id;
         if (q.push(i, OrderKind.Patrol, bases[2 * k], bases[2 * k + 1], back)) world.orders.retain(back);
       }
     }
@@ -253,6 +275,7 @@ export function issueStop(world: World, handles: Int32Array, hold: boolean): voi
     const i = handleIndex(h);
     clearQueue(world, i);
     resetMotion(world, i);
+    detachField(world, i);
     u.orderId[i] = 0;
     world.pathQueue.cancel(i);
     world.paths.clear(i);
@@ -279,6 +302,7 @@ export function arrive(world: World, i: number): void {
     return;
   }
   // Done: keep the id (negated) so late group-mates can chain-arrive on us.
+  detachField(world, i);
   u.orderId[i] = -Math.abs(u.orderId[i]);
   u.state[i] = MoveState.Arrived;
   u.arrivedTick[i] = world.tick;

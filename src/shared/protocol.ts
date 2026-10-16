@@ -162,7 +162,8 @@ export type ToSim =
   | { readonly type: 'control'; readonly paused?: boolean; readonly timeScale?: number; readonly step?: boolean }
   | { readonly type: 'returnBuffer'; readonly buffer: ArrayBuffer }
   | { readonly type: 'debugNavmesh'; readonly cls: number }
-  | { readonly type: 'watchPaths'; readonly handles: Int32Array };
+  | { readonly type: 'watchPaths'; readonly handles: Int32Array }
+  | { readonly type: 'debugFields' };
 
 export type FromSim =
   | { readonly type: 'ready'; readonly mapW: number; readonly mapH: number; readonly map: MapRenderData }
@@ -171,6 +172,7 @@ export type FromSim =
   | { readonly type: 'notice'; readonly text: string }
   | { readonly type: 'navDebug'; readonly data: NavDebugData }
   | { readonly type: 'paths'; readonly entries: readonly PathEntry[]; readonly cleared: Int32Array }
+  | { readonly type: 'fieldDebug'; readonly arrows: Float32Array; readonly fields: number; readonly settled: number }
   | { readonly type: 'error'; readonly message: string };
 
 /** Minimal port shape shared by DedicatedWorkerGlobalScope and Worker. */
