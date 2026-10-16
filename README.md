@@ -103,3 +103,7 @@ Then open `http://localhost:4173/?bench=30`.
 - `src/app/` — main-thread orchestration: sim host, snapshot ring, render clock, overlays, editor, tuning panel, benchmark
 - `src/render/` — WebGL2: distance-field terrain (bevel, ambient occlusion, cast shadows), instanced buildings and SDF units, thick lines, debug fills
 - `src/input/` — camera, selection, commands, control groups, touch gestures · `src/ui/` — HUD, minimap, selection panel
+
+## License
+
+[MIT](LICENSE)
