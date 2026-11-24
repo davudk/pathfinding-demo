@@ -2,6 +2,11 @@
 
 A StarCraft II–style pathfinding and unit-movement demo in the browser. **10,000 circular units** of different sizes and speeds move across a 512×512 map with polygonal terrain, buildings you can place and remove at runtime, and several factions. It's written in TypeScript with a raw WebGL2 renderer, and the deterministic simulation runs in a Web Worker.
 
+<p>
+  <img src="docs/images/chokepoint.gif" width="44%" alt="200 units squeezing through a narrow gap in a wall">
+  <img src="docs/images/10k-units.jpg" width="54%" alt="10,000 units moving across the map">
+</p>
+
 - **Navigation:** a dynamic constrained Delaunay navmesh with Demyen clearance widths. One mesh serves every unit radius, and buildings are inserted and removed incrementally.
 - **Paths:** radius-aware A* over triangles, a circle-tangent funnel, and shared destination fields for group orders. A 500-unit order has paths for every unit within 2 ticks.
 - **Locomotion:** SC2-style. Steering with keep-right avoidance; priority pushing (idle allies get shoved, hold-position units never yield, enemies never push); wall sliding; chain arrival without dancing; local detours around walls of units that won't move.
